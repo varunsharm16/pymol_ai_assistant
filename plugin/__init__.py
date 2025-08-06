@@ -1,4 +1,4 @@
-#cat << 'EOF' > ~/.pymol/Plugins/pymol_ai_assistant/__init__.py
+# cat << 'EOF' > ~/.pymol/Plugins/pymol_ai_assistant/__init__.py
 import os, json, inspect, re
 from PyQt5 import QtWidgets
 from pymol import cmd
@@ -34,7 +34,11 @@ def color_residue(residue: str, chain: str, color: str):
 def color_chain(chain: str, color: str):
     chain = chain.upper()
     print(f"[DEBUG] color_chain: chain {chain}, color: {color}")
-    cmd.color(color, f"chain {chain}")
+    # Special-case 'ALL' to color everything
+    if chain == "ALL":
+        cmd.color(color, "all")
+    else:
+        cmd.color(color, f"chain {chain}")
 
 def color_all(color: str):
     print(f"[DEBUG] color_all: color {color}")
@@ -153,12 +157,13 @@ def launch_ui():
                     print(f"[DEBUG] extracted chain from text: {args['chain']}")
             else:
                 args["chain"] = chain_arg.upper()
-                print(f"[DEBUG] uppercased chain: {args['chain']}")
-        else:
-            m = re.search(r'chain\s+([A-Za-z])', text, re.IGNORECASE)
-            if m:
-                args["chain"] = m.group(1).upper()
                 print(f"[DEBUG] detected chain in text fallback: {args['chain']}")
+
+        # Default to 'all' for color_chain when prompt indicates 'all chains'
+        if name == "color_chain" and "chain" not in args:
+            if re.search(r"\ball\s+chains?\b", text, re.IGNORECASE):
+                args["chain"] = "all"
+                print(f"[DEBUG] defaulted chain to 'all' for color_chain")
 
         # ---- Cartoon representation aliasing & default ----
         if name == "set_cartoon":
@@ -254,4 +259,4 @@ cmd.extend("ai", launch_ui)
 
 def __init_plugin__(self=None):
     pass
-#EOF
+# EOF
