@@ -1,4 +1,4 @@
-cat << 'EOF' > ~/.pymol/Plugins/pymol_ai_assistant/__init__.py
+#cat << 'EOF' > ~/.pymol/Plugins/pymol_ai_assistant/__init__.py
 import os, json, inspect, re
 from PyQt5 import QtWidgets
 from pymol import cmd
@@ -31,33 +31,27 @@ def color_residue(residue: str, chain: str, color: str):
     print(f"[DEBUG] color_residue selection: {sel}, color: {color}")
     cmd.color(color, sel)
 
-
 def color_chain(chain: str, color: str):
     chain = chain.upper()
     print(f"[DEBUG] color_chain: chain {chain}, color: {color}")
     cmd.color(color, f"chain {chain}")
 
-
 def color_all(color: str):
     print(f"[DEBUG] color_all: color {color}")
     cmd.color(color, "all")
-
 
 def set_background(color: str):
     print(f"[DEBUG] set_background: color {color}")
     cmd.bg_color(color)
 
-
 def rotate_view(axis: str, angle: float):
     print(f"[DEBUG] rotate_view: axis {axis}, angle {angle}")
     cmd.rotate(axis, angle)
-
 
 def set_cartoon(representation: str):
     print(f"[DEBUG] set_cartoon: representation {representation}")
     cmd.hide("everything", "all")
     cmd.show(representation, "all")
-
 
 def snapshot(filename: str):
     filename = filename or ""
@@ -88,7 +82,6 @@ FUNCTION_MAP = {
     "snapshot":       snapshot,
 }
 
-
 def call_llm(prompt: str):
     print(f"[DEBUG] call_llm prompt: {prompt}")
     system_msg = (
@@ -113,7 +106,6 @@ def call_llm(prompt: str):
     spec = json.loads(content)
     print(f"[DEBUG] call_llm parsed spec: {spec}")
     return spec
-
 
 def launch_ui():
     text, ok = QtWidgets.QInputDialog.getText(
@@ -165,8 +157,21 @@ def launch_ui():
         else:
             m = re.search(r'chain\s+([A-Za-z])', text, re.IGNORECASE)
             if m:
-                    args["chain"] = m.group(1).upper()
-                    print(f"[DEBUG] detected chain in text fallback: {args['chain']}")
+                args["chain"] = m.group(1).upper()
+                print(f"[DEBUG] detected chain in text fallback: {args['chain']}")
+
+        # ---- Cartoon representation aliasing & default ----
+        if name == "set_cartoon":
+            # alias fields to 'representation'
+            if "cartoon_type" in args:
+                args["representation"] = args.pop("cartoon_type")
+                print(f"[DEBUG] aliased 'cartoon_type' to 'representation': {args['representation']}")
+            elif "style" in args:
+                args["representation"] = args.pop("style")
+                print(f"[DEBUG] aliased 'style' to 'representation': {args['representation']}")
+            # default if missing
+            args.setdefault("representation", "cartoon")
+            print(f"[DEBUG] defaulted 'representation' to: {args['representation']}")
 
         # ---- Hex color handling ----
         col = args.get("color")
@@ -249,4 +254,4 @@ cmd.extend("ai", launch_ui)
 
 def __init_plugin__(self=None):
     pass
-EOF
+#EOF
