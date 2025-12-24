@@ -11,6 +11,7 @@ __pycache__/
 build/
 develop-eggs/
 dist/
+dist-electron/
 downloads/
 eggs/
 .eggs/
@@ -23,6 +24,8 @@ wheels/
 *.egg-info/
 .installed.cfg
 *.egg
+node_modules/
+
 
 # Virtual environments
 .venv/
