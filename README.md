@@ -14,10 +14,10 @@ Control PyMOL using natural language. Just describe what you want in plain Engli
 git clone https://github.com/varunsharm16/pymol_ai_assistant.git
 cd pymol_ai_assistant
 
-# 2. Install (macOS/Linux)
-./install.sh
+# 2. Install (macOS | Linux)
+./install.sh | install.bat
 
-# 3. Open PyMOL and type:
+# 3. Open PyMOL and type in its terminal:
 ai
 ```
 
