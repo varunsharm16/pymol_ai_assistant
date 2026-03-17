@@ -10,6 +10,7 @@ import ConfirmDialog from './ConfirmDialog';
 import {
   createBlankProjectFlow,
   deleteProjectFlow,
+  isTerminalProjectActionError,
   openProjectFlow,
   switchProjectFlow,
 } from '../lib/projectSync';
@@ -136,7 +137,7 @@ const ProjectsPanel: React.FC = () => {
     const result = await openProjectFlow(filePath!);
     if (result.ok && result.metadata) {
       addLog({ prompt: 'Load project', status: 'success', message: `Loaded: ${result.metadata.name}` });
-    } else {
+    } else if (isTerminalProjectActionError('error' in result ? result.error : undefined)) {
       addLog({ prompt: 'Load project', status: 'error', message: ('error' in result && result.error) || 'Failed' });
     }
   };
@@ -150,7 +151,7 @@ const ProjectsPanel: React.FC = () => {
         <button
           onClick={() => {
             createBlankProjectFlow('New Project').then((result) => {
-              if (!result.ok) {
+              if (!result.ok && isTerminalProjectActionError('error' in result ? result.error : undefined)) {
                 addLog({
                   prompt: 'Create project',
                   status: 'error',
@@ -215,7 +216,7 @@ const ProjectsPanel: React.FC = () => {
             onClick={() => {
               if (renameId === p.id || switchingProject) return;
               switchProjectFlow(p.id).then((result) => {
-                if (!result.ok) {
+                if (!result.ok && isTerminalProjectActionError('error' in result ? result.error : undefined)) {
                   addLog({
                     prompt: 'Switch project',
                     status: 'error',
@@ -288,7 +289,7 @@ const ProjectsPanel: React.FC = () => {
           setDeleteId(null);
           if (!id) return;
           deleteProjectFlow(id).then((result) => {
-            if (!result.ok) {
+            if (!result.ok && isTerminalProjectActionError('error' in result ? result.error : undefined)) {
               addLog({
                 prompt: 'Delete project',
                 status: 'error',

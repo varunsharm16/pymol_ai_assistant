@@ -3,6 +3,10 @@ import { useStore } from '../store';
 import { ArrowUp } from 'lucide-react';
 import { sendCommand, sendNL, snapshotWithPicker } from '../lib/bridge';
 import { parsePromptToSpec } from '../lib/parse';
+import {
+  markCurrentProjectSessionDirty,
+  refreshCurrentProjectSessionCache,
+} from '../lib/projectSync';
 
 export const PromptInput: React.FC = () => {
   const draft = useStore((s) => s.draft);
@@ -10,6 +14,11 @@ export const PromptInput: React.FC = () => {
   const addLog = useStore((s) => s.addLog);
   const updateLog = useStore((s) => s.updateLog);
   const [sending, setSending] = React.useState(false);
+
+  const refreshSessionCache = React.useCallback(() => {
+    markCurrentProjectSessionDirty();
+    void refreshCurrentProjectSessionCache();
+  }, []);
 
   const send = async () => {
     if (sending) return;
@@ -29,6 +38,7 @@ export const PromptInput: React.FC = () => {
           updateLog(logId, { status: 'pending', message: progress.message });
         });
         if (resp.ok) {
+          refreshSessionCache();
           updateLog(logId, { status: 'success', message: 'Natural-language command completed.' });
         } else {
           updateLog(logId, { status: 'error', message: resp.error || 'Bridge not connected' });
@@ -86,6 +96,7 @@ export const PromptInput: React.FC = () => {
         updateLog(logId, { status: 'pending', message: progress.message });
       });
       if (res.ok) {
+        refreshSessionCache();
         updateLog(logId, { status: 'success', message: 'Command completed in PyMOL.' });
       } else {
         updateLog(logId, { status: 'error', message: res.error || 'Bridge not connected' });

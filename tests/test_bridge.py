@@ -97,6 +97,44 @@ def test_fetch_pdb_no_plugin(client):
     assert resp.status_code == 503
 
 
+def test_fetch_pdb_bad_id(client):
+    """POST /fetch-pdb rejects malformed PDB IDs before contacting PyMOL."""
+    resp = client.post("/fetch-pdb", json={"pdb_id": "XYZ"})
+    assert resp.status_code == 400
+    assert "4 characters" in resp.json()["error"]
+
+
+def test_fetch_pdb_not_found(client, monkeypatch):
+    """POST /fetch-pdb returns 404 immediately when RCSB reports missing entry."""
+    import main
+
+    class FakeResponse:
+        status_code = 404
+
+        def json(self):
+            return {}
+
+    class FakeAsyncClient:
+        def __init__(self, *args, **kwargs):
+            pass
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, exc_type, exc, tb):
+            return False
+
+        async def get(self, url):
+            return FakeResponse()
+
+    monkeypatch.setattr(main.httpx, "AsyncClient", FakeAsyncClient)
+    monkeypatch.setattr(main, "_has_live_clients", lambda: True)
+
+    resp = client.post("/fetch-pdb", json={"pdb_id": "3XLI"})
+    assert resp.status_code == 404
+    assert "not found" in resp.json()["error"].lower()
+
+
 def test_import_file_not_found(client):
     """POST /import-file with nonexistent file returns 404."""
     resp = client.post("/import-file", json={"file_path": "/tmp/nonexistent.pdb"})

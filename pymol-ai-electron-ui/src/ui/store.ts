@@ -51,6 +51,7 @@ type State = {
   notes: Record<string, string>;
   projectMolecules: Record<string, MoleculeInfo>;
   projectSessions: Record<string, string | null>;
+  projectSessionDirty: Record<string, boolean>;
   draft: string;
   ui: { rightPanel: Right; quickActionsExpanded: boolean };
 
@@ -83,6 +84,8 @@ type State = {
   setHealthChecks: (checks: HealthCheck[]) => void;
   setRecentProjects: (p: RecentProject[]) => void;
   setProjectSession: (projectId: string, data: string | null) => void;
+  setProjectSessionDirty: (projectId: string, dirty: boolean) => void;
+  setCurrentProjectSessionDirty: (dirty: boolean) => void;
   setProjectMolecule: (projectId: string, molecule: MoleculeInfo) => void;
   setCurrentProjectMolecule: (molecule: MoleculeInfo) => void;
   hydrateProjectFromLoadedFile: (opts: {
@@ -118,6 +121,7 @@ function createWorkspaceState(name = 'New Project') {
     notes: { [project.id]: '' },
     projectMolecules: { [project.id]: {} as MoleculeInfo },
     projectSessions: { [project.id]: null as string | null },
+    projectSessionDirty: { [project.id]: false },
   };
 }
 
@@ -130,6 +134,7 @@ export const useStore = create<State>((set, get) => ({
   notes: initialWorkspace.notes,
   projectMolecules: initialWorkspace.projectMolecules,
   projectSessions: initialWorkspace.projectSessions,
+  projectSessionDirty: initialWorkspace.projectSessionDirty,
   draft: '',
   ui: { rightPanel: 'none', quickActionsExpanded: false },
 
@@ -176,6 +181,7 @@ export const useStore = create<State>((set, get) => ({
       notes: { ...s.notes, [p.id]: '' },
       projectMolecules: { ...s.projectMolecules, [p.id]: {} },
       projectSessions: { ...s.projectSessions, [p.id]: null },
+      projectSessionDirty: { ...s.projectSessionDirty, [p.id]: false },
       pendingRenameId: p.id,
     }));
     return p.id;
@@ -190,6 +196,9 @@ export const useStore = create<State>((set, get) => ({
       ),
       projectSessions: Object.fromEntries(
         Object.entries(s.projectSessions).filter(([key]) => key !== id)
+      ),
+      projectSessionDirty: Object.fromEntries(
+        Object.entries(s.projectSessionDirty).filter(([key]) => key !== id)
       ),
     })),
   addLog: (entry) => get().addLogToProject(get().currentProjectId, entry),
@@ -230,7 +239,16 @@ export const useStore = create<State>((set, get) => ({
   setProjectSession: (projectId, data) =>
     set((s) => ({
       projectSessions: { ...s.projectSessions, [projectId]: data },
+      projectSessionDirty: { ...s.projectSessionDirty, [projectId]: false },
     })),
+  setProjectSessionDirty: (projectId, dirty) =>
+    set((s) => ({
+      projectSessionDirty: { ...s.projectSessionDirty, [projectId]: dirty },
+    })),
+  setCurrentProjectSessionDirty: (dirty) => {
+    const projectId = get().currentProjectId;
+    get().setProjectSessionDirty(projectId, dirty);
+  },
   setProjectMolecule: (projectId, molecule) =>
     set((s) => ({
       projectMolecules: { ...s.projectMolecules, [projectId]: molecule },
@@ -265,6 +283,7 @@ export const useStore = create<State>((set, get) => ({
       notes: { ...s.notes, [projectId]: notes || '' },
       projectMolecules: { ...s.projectMolecules, [projectId]: molecule || {} },
       projectSessions: { ...s.projectSessions, [projectId]: sessionData || null },
+      projectSessionDirty: { ...s.projectSessionDirty, [projectId]: false },
     }));
     return projectId;
   },
@@ -278,6 +297,7 @@ export const useStore = create<State>((set, get) => ({
       notes: workspace.notes,
       projectMolecules: workspace.projectMolecules,
       projectSessions: workspace.projectSessions,
+      projectSessionDirty: workspace.projectSessionDirty,
       pendingRenameId: null,
       switchingProject: false,
       draft: '',

@@ -421,6 +421,47 @@ async def validate_key(req: Request):
 # ---------------------------------------------------------------------------
 
 
+async def _lookup_pdb_metadata(pdb_id: str):
+    try:
+        async with httpx.AsyncClient(timeout=10.0) as client:
+            resp = await client.get(
+                f"https://data.rcsb.org/rest/v1/core/entry/{pdb_id}"
+            )
+    except Exception as exc:
+        return None, JSONResponse(
+            {"ok": False, "error": f"Network error: {exc}"}, status_code=502
+        )
+
+    if resp.status_code == 200:
+        data = resp.json()
+        struct = data.get("struct", {})
+        exptl = data.get("exptl", [{}])[0] if data.get("exptl") else {}
+        rcsb = data.get("rcsb_entry_info", {})
+        return {
+            "ok": True,
+            "pdb_id": pdb_id,
+            "title": struct.get("title", ""),
+            "method": exptl.get("method", ""),
+            "resolution": rcsb.get("resolution_combined", [None])[0]
+            if rcsb.get("resolution_combined")
+            else None,
+            "polymer_entity_count": rcsb.get(
+                "polymer_entity_count_protein", 0
+            ),
+        }, None
+
+    if resp.status_code == 404:
+        return None, JSONResponse(
+            {"ok": False, "error": f"PDB ID '{pdb_id}' not found"},
+            status_code=404,
+        )
+
+    return None, JSONResponse(
+        {"ok": False, "error": f"RCSB returned {resp.status_code}"},
+        status_code=502,
+    )
+
+
 @app.get("/pdb-info/{pdb_id}")
 async def pdb_info(pdb_id: str):
     """Fetch metadata from RCSB PDB REST API."""
@@ -430,43 +471,10 @@ async def pdb_info(pdb_id: str):
             {"ok": False, "error": "PDB ID must be 4 characters"}, status_code=400
         )
 
-    try:
-        async with httpx.AsyncClient(timeout=10.0) as client:
-            resp = await client.get(
-                f"https://data.rcsb.org/rest/v1/core/entry/{pdb_id}"
-            )
-            if resp.status_code == 200:
-                data = resp.json()
-                struct = data.get("struct", {})
-                cell = data.get("cell", {})
-                exptl = data.get("exptl", [{}])[0] if data.get("exptl") else {}
-                rcsb = data.get("rcsb_entry_info", {})
-                return {
-                    "ok": True,
-                    "pdb_id": pdb_id,
-                    "title": struct.get("title", ""),
-                    "method": exptl.get("method", ""),
-                    "resolution": rcsb.get("resolution_combined", [None])[0]
-                    if rcsb.get("resolution_combined")
-                    else None,
-                    "polymer_entity_count": rcsb.get(
-                        "polymer_entity_count_protein", 0
-                    ),
-                }
-            elif resp.status_code == 404:
-                return JSONResponse(
-                    {"ok": False, "error": f"PDB ID '{pdb_id}' not found"},
-                    status_code=404,
-                )
-            else:
-                return JSONResponse(
-                    {"ok": False, "error": f"RCSB returned {resp.status_code}"},
-                    status_code=502,
-                )
-    except Exception as exc:
-        return JSONResponse(
-            {"ok": False, "error": f"Network error: {exc}"}, status_code=502
-        )
+    metadata, error_response = await _lookup_pdb_metadata(pdb_id)
+    if error_response is not None:
+        return error_response
+    return metadata
 
 
 @app.post("/fetch-pdb")
@@ -479,8 +487,21 @@ async def fetch_pdb(req: Request):
             return JSONResponse(
                 {"ok": False, "error": "pdb_id is required"}, status_code=400
             )
+        if len(pdb_id) != 4:
+            return JSONResponse(
+                {"ok": False, "error": "PDB ID must be 4 characters"}, status_code=400
+            )
     except Exception:
         return JSONResponse({"ok": False, "error": "Bad JSON"}, status_code=400)
+
+    if not _has_live_clients():
+        return JSONResponse(
+            {"ok": False, "error": "No PyMOL plugin connected"}, status_code=503
+        )
+
+    _, error_response = await _lookup_pdb_metadata(pdb_id)
+    if error_response is not None:
+        return error_response
 
     data, code = await _broadcast_and_wait(
         {"name": "fetch_pdb", "arguments": {"pdb_id": pdb_id}},

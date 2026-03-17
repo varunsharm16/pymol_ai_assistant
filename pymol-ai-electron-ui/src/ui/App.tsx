@@ -9,7 +9,11 @@ import { Button } from './components/Button';
 import { Plus, Settings, Activity, Atom } from 'lucide-react';
 import ApiKeyModal from './components/ApiKeyModal';
 import { checkApiKey } from './lib/bridge';
-import { createBlankProjectFlow, startFreshWorkspaceFlow } from './lib/projectSync';
+import {
+  createBlankProjectFlow,
+  isTerminalProjectActionError,
+  startFreshWorkspaceFlow,
+} from './lib/projectSync';
 
 const Toolbar: React.FC = () => {
   const setPanel = useStore((s) => s.setRightPanel);
@@ -31,7 +35,7 @@ const Toolbar: React.FC = () => {
       <button
         onClick={() => {
           createBlankProjectFlow('New Project').then((result) => {
-            if (!result.ok) {
+            if (!result.ok && isTerminalProjectActionError('error' in result ? result.error : undefined)) {
               addLog({
                 prompt: 'Create project',
                 status: 'error',

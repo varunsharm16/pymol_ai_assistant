@@ -2,6 +2,10 @@ import React from 'react';
 import { useStore } from '../store';
 import { getPdbInfo, fetchPdb, importFile } from '../lib/bridge';
 import { Search, Upload, Loader2, CheckCircle, XCircle, Atom } from 'lucide-react';
+import {
+  markCurrentProjectSessionDirty,
+  refreshCurrentProjectSessionCache,
+} from '../lib/projectSync';
 
 type Tab = 'fetch' | 'import';
 
@@ -23,38 +27,69 @@ const MoleculePanel: React.FC = () => {
   const [importStatus, setImportStatus] = React.useState<'idle' | 'loading' | 'loaded' | 'error'>('idle');
   const [importMsg, setImportMsg] = React.useState('');
 
+  const refreshSessionCache = React.useCallback(() => {
+    markCurrentProjectSessionDirty();
+    void refreshCurrentProjectSessionCache();
+  }, []);
+
   const handlePreview = async () => {
     if (!pdbId.trim()) return;
     setPdbLoading(true);
     setPdbInfo(null);
+    setPdbStatus('idle');
+    setPdbMsg('');
     const info = await getPdbInfo(pdbId.trim());
     setPdbLoading(false);
     if (info.ok) {
       setPdbInfo(info);
     } else {
       setPdbInfo(null);
+      setPdbStatus('error');
       setPdbMsg(info.error || 'Not found');
     }
   };
 
   const handleFetch = async () => {
     if (!pdbId.trim()) return;
+    const normalizedId = pdbId.trim().toUpperCase();
+    let info = pdbInfo && pdbInfo.pdb_id === normalizedId ? pdbInfo : null;
+    if (!info) {
+      setPdbLoading(true);
+      setPdbMsg('');
+      const lookup = await getPdbInfo(normalizedId);
+      setPdbLoading(false);
+      if (!lookup.ok) {
+        setPdbInfo(null);
+        setPdbStatus('error');
+        setPdbMsg(lookup.error || 'PDB not found');
+        addLog({
+          prompt: `Fetch PDB: ${normalizedId}`,
+          status: 'error',
+          message: lookup.error || 'PDB not found.',
+        });
+        return;
+      }
+      info = lookup;
+      setPdbInfo(lookup);
+    }
+
     setPdbStatus('loading');
     setPdbMsg('');
     const logId = addLog({
-      prompt: `Fetch PDB: ${pdbId.toUpperCase()}`,
+      prompt: `Fetch PDB: ${normalizedId}`,
       status: 'pending',
       message: 'Sending fetch request…',
     });
-    const res = await fetchPdb(pdbId.trim(), (progress) => {
+    const res = await fetchPdb(normalizedId, (progress) => {
       updateLog(logId, { status: 'pending', message: progress.message });
     });
     if (res.ok) {
+      refreshSessionCache();
       setPdbStatus('loaded');
-      setPdbMsg(`Loaded ${pdbId.toUpperCase()}`);
+      setPdbMsg(`Loaded ${normalizedId}`);
       setCurrentProjectMolecule({
-        pdbId: pdbId.toUpperCase(),
-        name: pdbInfo?.title || pdbId.toUpperCase(),
+        pdbId: normalizedId,
+        name: info?.title || normalizedId,
       });
       updateLog(logId, { status: 'success', message: 'Molecule loaded in PyMOL.' });
     } else {
@@ -90,6 +125,7 @@ const MoleculePanel: React.FC = () => {
       updateLog(logId, { status: 'pending', message: progress.message });
     });
     if (res.ok) {
+      refreshSessionCache();
       setImportStatus('loaded');
       setImportMsg(`Loaded ${name}`);
       setCurrentProjectMolecule({ filePath, name });
