@@ -3,6 +3,29 @@
 Control PyMOL using natural language. Just describe what you want in plain English—no need to memorize complex commands.
 
 ![License](https://img.shields.io/badge/license-MIT-green)
+![Version](https://img.shields.io/badge/version-0.1.0--alpha-blue)
+
+---
+
+## Quick Start
+
+```bash
+# 1. Clone
+git clone https://github.com/varunsharm16/pymol_ai_assistant.git
+cd pymol_ai_assistant
+
+# 2. Install (macOS/Linux)
+./install.sh
+
+# 3. Open PyMOL and type:
+ai
+```
+
+That's it. The bridge server, desktop UI, and plugin all start automatically.
+
+> 💡 First time? The app will prompt you to enter your OpenAI API key on launch.
+
+---
 
 ## Why This Exists
 
@@ -12,7 +35,7 @@ Learning molecular visualization tools like PyMOL can be intimidating. The comma
 - **Researchers** who occasionally need to visualize proteins but don't use PyMOL daily
 - **Educators** who want to focus on teaching concepts, not software commands
 
-This plugin bridges that gap. Instead of learning commands like `cmd.color("magenta", "resn CYS and chain A")`, you simply type:
+Instead of learning commands like `cmd.color("magenta", "resn CYS and chain A")`, you simply type:
 
 > "Color the cysteines in chain A magenta"
 
@@ -25,6 +48,9 @@ The AI interprets your intent and executes the correct PyMOL command.
 - 🎨 **Visualization controls** — Color residues, chains, change representations
 - 📸 **Screenshots** — Save publication-quality snapshots
 - 🔄 **View manipulation** — Rotate and orient your molecule
+- 🧪 **PDB fetch & import** — Load molecules by PDB ID or local file
+- 💾 **Project save/load** — Save your session and command history as `.pymolai` files
+- ✅ **Health check** — Built-in system diagnostic to verify everything works
 
 ## Supported Commands
 
@@ -58,14 +84,19 @@ The AI interprets your intent and executes the correct PyMOL command.
 ```
 pymol_ai_assistant/
 ├── plugin/                     # PyMOL plugin
-│   └── __init__.py
-├── pymol-bridge/               # FastAPI WebSocket server
-│   ├── main.py
+│   └── __init__.py             #   Unified launcher, WS client, command executor
+├── pymol-bridge/               # FastAPI WebSocket bridge server
+│   ├── main.py                 #   REST API + WebSocket relay
 │   └── requirements.txt
 ├── pymol-ai-electron-ui/       # Desktop app (Electron + React)
-│   ├── src/
+│   ├── electron/               #   Main process + preload
+│   ├── src/ui/                 #   React components + store
 │   └── package.json
-└── README.md
+├── tests/                      # pytest test suite
+├── install.sh                  # macOS/Linux installer
+├── install.bat                 # Windows installer
+├── version.py                  # Version: 0.1.0-alpha
+└── CHANGELOG.md
 ```
 
 ---
@@ -79,97 +110,72 @@ pymol_ai_assistant/
 - Python 3.8+
 - An [OpenAI API key](https://platform.openai.com/api-keys)
 
-### Step 1: Set Up Your API Key
-
-Create a file at `~/.pymol/openai_api_key.txt` containing only your OpenAI API key:
+### macOS / Linux
 
 ```bash
-mkdir -p ~/.pymol
-echo "sk-your-api-key-here" > ~/.pymol/openai_api_key.txt
-chmod 600 ~/.pymol/openai_api_key.txt
+git clone https://github.com/varunsharm16/pymol_ai_assistant.git
+cd pymol_ai_assistant
+./install.sh
 ```
 
-> ⚠️ **Security Note**: Never commit your API key. The key file is stored outside the repo and is only readable by you.
+The installer will:
+1. Create a Python venv and install bridge dependencies
+2. Run `npm install` for the Electron UI
+3. Link the plugin to PyMOL's startup directory
+4. Install `websocket-client` and `openai` in PyMOL's Python (if detected)
 
-### Step 2: Install the Bridge Server
+### Windows
 
-```bash
-cd pymol-bridge
-python3 -m venv .venv
-source .venv/bin/activate
-pip install -r requirements.txt
+```cmd
+git clone https://github.com/varunsharm16/pymol_ai_assistant.git
+cd pymol_ai_assistant
+install.bat
 ```
 
-### Step 3: Install the Desktop UI
+The installer will:
+1. Create a Python venv and install bridge dependencies
+2. Run `npm install` for the Electron UI
+3. Copy the plugin to `%APPDATA%\PyMOL\Startup\`
 
-```bash
-cd pymol-ai-electron-ui
-npm install
-```
+### After Installation
 
-### Step 4: Install PyMOL Dependencies
-
-Install required packages in PyMOL's Python environment:
-
-```bash
-# For macOS PyMOL.app:
-/Applications/PyMOL.app/Contents/bin/pip install websocket-client openai
-```
+1. Open PyMOL
+2. Type `ai` in the PyMOL command line
+3. The Electron UI will open — enter your API key in Settings on first launch
+4. Start typing natural language commands!
 
 ---
 
 ## Usage
 
-### 1. Start the Bridge Server
+### Load a Molecule
 
-```bash
-cd pymol-bridge
-source .venv/bin/activate
-python main.py
-```
+**From PDB:**
+1. Click "Molecules" in the toolbar
+2. Enter a PDB ID (e.g., `1CRN`)
+3. Click "Preview" for metadata, then "Load in PyMOL"
 
-You should see:
-```
-INFO:     Uvicorn running on http://127.0.0.1:5179
-```
+**From File:**
+1. Click "Molecules" → "Import File" tab
+2. Choose a `.pdb`, `.cif`, `.mol2`, or `.sdf` file
 
-### 2. Start the Desktop UI
+### Send Commands
 
-In a new terminal:
-```bash
-cd pymol-ai-electron-ui
-npm run dev
-```
+Type in the prompt bar: `"Color all cysteines yellow"` → Watch it happen in PyMOL! ✨
 
-### 3. Connect PyMOL
+### Save/Load Projects
 
-Open PyMOL and run:
-```
-run /path/to/pymol_ai_assistant/plugin/__init__.py
-__init_plugin__()
-```
+- Click "Projects" → "Save" to export your session as a `.pymolai` file
+- Click "Open" to restore a previous session with all molecule state and command history
 
-You should see:
-```
-[AI-BRIDGE] WebSocket listener thread started.
-[AI-BRIDGE] Connected.
-```
+### System Check
 
-### 4. Use It!
-
-1. Load a structure in PyMOL: `fetch 1crn`
-2. In the Electron UI, type: "Color all cysteines yellow"
-3. Watch it happen in PyMOL! ✨
-
----
-
-## Alternative: Qt Dialog Mode
-
-If you don't want to use the desktop app, you can use the built-in Qt dialog:
-
-1. Run the plugin in PyMOL (Step 3 above)
-2. Type `ai` in PyMOL's command line
-3. A dialog appears—enter your natural language command
+Click "Status" in the toolbar to run a 5-point health check:
+- ✅ Bridge server reachable
+- ✅ PyMOL plugin connected
+- ✅ API key valid
+- ✅ Node.js ≥ 18
+- ✅ Python ≥ 3.8
 
 ---
 
@@ -181,19 +187,72 @@ This uses OpenAI's GPT-3.5-turbo API. Each command costs approximately **$0.001�
 
 ## Security
 
-- ✅ API key stored externally (`~/.pymol/openai_api_key.txt`)
+- ✅ API key stored locally in `~/.pymol/config.json` with restricted permissions
 - ✅ Bridge runs on localhost only (127.0.0.1)
 - ✅ No credentials in source code or git history
+- ✅ API key entered through the UI — no manual file creation needed
+
+---
+
+## Troubleshooting
+
+### 1. Bridge won't start
+- Make sure `pymol-bridge/.venv` exists. Re-run `./install.sh` if needed.
+- Check that port 5179 isn't in use: `lsof -i :5179`
+
+### 2. Electron UI doesn't open
+- Ensure `node_modules` exists in `pymol-ai-electron-ui/`. Run `npm install` if missing.
+- Requires Node.js 18+. Check with `node --version`.
+
+### 3. PyMOL says "Unknown command: ai"
+- The plugin isn't installed. Re-run the installer or manually:
+  ```
+  run /path/to/pymol_ai_assistant/plugin/__init__.py
+  ```
+
+### 4. Commands fail with "No PyMOL plugin connected"
+- Make sure you typed `ai` in PyMOL (not just opened the Electron UI separately).
+- Check the System Check panel for diagnostics.
+
+### 5. API key errors
+- Go to Settings in the Electron UI and re-enter your key.
+- Make sure your OpenAI account has API credits.
+- Test at https://platform.openai.com/api-keys
+
+---
+
+## Contributing
+
+Contributions are welcome! Please follow these guidelines:
+
+### Branch Naming
+- Feature branches: `feature/description`
+- Bug fixes: `fix/description`
+- Release branches: `release/x.y.z`
+
+### Pull Requests
+1. Fork the repository
+2. Create your feature branch
+3. Make your changes with clear commit messages
+4. Run tests: `cd tests && pytest -v`
+5. Submit a PR against `main`
+
+### Running Tests
+```bash
+# Python bridge tests
+pip install pytest httpx
+pytest tests/ -v
+
+# Electron build check
+cd pymol-ai-electron-ui
+npm run build
+```
 
 ---
 
 ## License
 
 MIT License — feel free to use, modify, and share.
-
-## Contributing
-
-Contributions are welcome! Feel free to open issues or submit pull requests.
 
 ---
 

@@ -43,6 +43,11 @@ env/
 .AppleDouble
 .LSOverride
 
+# Windows
+Thumbs.db
+ehthumbs.db
+Desktop.ini
+
 # API keys and secrets (never commit these!)
 *.key
 *.pem
@@ -52,3 +57,17 @@ env/
 
 # Local configuration
 ai_config.json
+
+# PyMOL AI config (contains API key)
+config.json
+
+# Project files (user data)
+*.pymolai
+
+# Test artifacts
+.pytest_cache/
+htmlcov/
+.coverage
+
+# Logs
+*.log

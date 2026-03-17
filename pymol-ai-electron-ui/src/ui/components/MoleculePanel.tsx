@@ -1,0 +1,222 @@
+import React from 'react';
+import { useStore } from '../store';
+import { getPdbInfo, fetchPdb, importFile } from '../lib/bridge';
+import { Search, Upload, Loader2, CheckCircle, XCircle, Atom } from 'lucide-react';
+
+type Tab = 'fetch' | 'import';
+
+const MoleculePanel: React.FC = () => {
+  const [tab, setTab] = React.useState<Tab>('fetch');
+  const currentMolecule = useStore((s) => s.projectMolecules[s.currentProjectId] || {});
+  const setCurrentProjectMolecule = useStore((s) => s.setCurrentProjectMolecule);
+  const addLog = useStore((s) => s.addLog);
+  const updateLog = useStore((s) => s.updateLog);
+
+  // PDB fetch state
+  const [pdbId, setPdbId] = React.useState('');
+  const [pdbInfo, setPdbInfo] = React.useState<any>(null);
+  const [pdbLoading, setPdbLoading] = React.useState(false);
+  const [pdbStatus, setPdbStatus] = React.useState<'idle' | 'loading' | 'loaded' | 'error'>('idle');
+  const [pdbMsg, setPdbMsg] = React.useState('');
+
+  // Import state
+  const [importStatus, setImportStatus] = React.useState<'idle' | 'loading' | 'loaded' | 'error'>('idle');
+  const [importMsg, setImportMsg] = React.useState('');
+
+  const handlePreview = async () => {
+    if (!pdbId.trim()) return;
+    setPdbLoading(true);
+    setPdbInfo(null);
+    const info = await getPdbInfo(pdbId.trim());
+    setPdbLoading(false);
+    if (info.ok) {
+      setPdbInfo(info);
+    } else {
+      setPdbInfo(null);
+      setPdbMsg(info.error || 'Not found');
+    }
+  };
+
+  const handleFetch = async () => {
+    if (!pdbId.trim()) return;
+    setPdbStatus('loading');
+    setPdbMsg('');
+    const logId = addLog({
+      prompt: `Fetch PDB: ${pdbId.toUpperCase()}`,
+      status: 'pending',
+      message: 'Sending fetch request…',
+    });
+    const res = await fetchPdb(pdbId.trim(), (progress) => {
+      updateLog(logId, { status: 'pending', message: progress.message });
+    });
+    if (res.ok) {
+      setPdbStatus('loaded');
+      setPdbMsg(`Loaded ${pdbId.toUpperCase()}`);
+      setCurrentProjectMolecule({
+        pdbId: pdbId.toUpperCase(),
+        name: pdbInfo?.title || pdbId.toUpperCase(),
+      });
+      updateLog(logId, { status: 'success', message: 'Molecule loaded in PyMOL.' });
+    } else {
+      setPdbStatus('error');
+      setPdbMsg(res.error || 'Failed to fetch');
+      updateLog(logId, { status: 'error', message: res.error || 'Failed to fetch molecule.' });
+    }
+  };
+
+  const handleImport = async () => {
+    if (!window.api?.showOpenDialog) {
+      setImportMsg('File dialog unavailable');
+      return;
+    }
+    const result = await window.api.showOpenDialog({
+      title: 'Import Molecule File',
+      filters: [
+        { name: 'Molecule Files', extensions: ['pdb', 'cif', 'mol2', 'sdf'] },
+        { name: 'All Files', extensions: ['*'] },
+      ],
+      properties: ['openFile'],
+    });
+
+    if (!result || result.canceled || !result.filePaths?.length) return;
+
+    const filePath = result.filePaths[0];
+    setImportStatus('loading');
+    setImportMsg('');
+    const name = filePath.split(/[\\/]/).pop() || filePath;
+    const logId = addLog({ prompt: `Import: ${name}`, status: 'pending', message: 'Sending import request…' });
+
+    const res = await importFile(filePath, (progress) => {
+      updateLog(logId, { status: 'pending', message: progress.message });
+    });
+    if (res.ok) {
+      setImportStatus('loaded');
+      setImportMsg(`Loaded ${name}`);
+      setCurrentProjectMolecule({ filePath, name });
+      updateLog(logId, { status: 'success', message: 'File loaded in PyMOL.' });
+    } else {
+      setImportStatus('error');
+      setImportMsg(res.error || 'Import failed');
+      updateLog(logId, { status: 'error', message: res.error || 'Import failed.' });
+    }
+  };
+
+  return (
+    <div className="h-full flex flex-col bg-[#2A2A2A]">
+      <div className="px-4 py-3 text-sm uppercase tracking-wide text-neutral-300 bg-neutral-900">
+        Molecules
+      </div>
+
+      {/* Current molecule badge */}
+      {(currentMolecule.pdbId || currentMolecule.name) && (
+        <div className="mx-4 mt-3 px-3 py-2 rounded-xl bg-brand/10 border border-brand/30 flex items-center gap-2">
+          <Atom className="w-4 h-4 text-brand" />
+          <span className="text-sm text-brand truncate">
+            {currentMolecule.pdbId || currentMolecule.name}
+          </span>
+        </div>
+      )}
+
+      {/* Tabs */}
+      <div className="flex gap-1 px-4 mt-3">
+        <button
+          onClick={() => setTab('fetch')}
+          className={`flex-1 h-9 rounded-full text-sm font-medium ${
+            tab === 'fetch' ? 'bg-brand text-black' : 'bg-neutral-800 text-neutral-300 hover:bg-neutral-700'
+          }`}
+        >
+          Fetch PDB
+        </button>
+        <button
+          onClick={() => setTab('import')}
+          className={`flex-1 h-9 rounded-full text-sm font-medium ${
+            tab === 'import' ? 'bg-brand text-black' : 'bg-neutral-800 text-neutral-300 hover:bg-neutral-700'
+          }`}
+        >
+          Import File
+        </button>
+      </div>
+
+      <div className="p-4 flex-1 overflow-auto space-y-3">
+        {tab === 'fetch' && (
+          <>
+            <div className="flex gap-2">
+              <input
+                value={pdbId}
+                onChange={(e) => setPdbId(e.target.value.toUpperCase())}
+                onKeyDown={(e) => e.key === 'Enter' && handlePreview()}
+                placeholder="PDB ID (e.g. 1CRN)"
+                maxLength={4}
+                className="flex-1 h-10 px-3 rounded-xl bg-neutral-900 outline-none text-sm uppercase"
+              />
+              <button
+                onClick={handlePreview}
+                disabled={!pdbId.trim() || pdbLoading}
+                className="h-10 px-4 rounded-full bg-neutral-700 hover:bg-neutral-600 text-sm disabled:opacity-40"
+              >
+                {pdbLoading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Search className="w-4 h-4" />}
+              </button>
+            </div>
+
+            {/* Metadata preview */}
+            {pdbInfo && (
+              <div className="rounded-xl bg-neutral-900 p-3 text-sm space-y-1">
+                <div className="font-medium text-neutral-100">{pdbInfo.title}</div>
+                {pdbInfo.method && (
+                  <div className="text-neutral-400">Method: {pdbInfo.method}</div>
+                )}
+                {pdbInfo.resolution != null && (
+                  <div className="text-neutral-400">Resolution: {pdbInfo.resolution} Å</div>
+                )}
+              </div>
+            )}
+
+            <button
+              onClick={handleFetch}
+              disabled={!pdbId.trim() || pdbStatus === 'loading'}
+              className="w-full h-10 rounded-full bg-brand hover:bg-brandHover text-black font-medium text-sm disabled:opacity-40 flex items-center justify-center gap-2"
+            >
+              {pdbStatus === 'loading' ? (
+                <><Loader2 className="w-4 h-4 animate-spin" /> Loading…</>
+              ) : (
+                'Load in PyMOL'
+              )}
+            </button>
+
+            {pdbMsg && (
+              <div className={`flex items-center gap-2 text-sm ${pdbStatus === 'loaded' ? 'text-emerald-400' : pdbStatus === 'error' ? 'text-red-400' : 'text-neutral-400'}`}>
+                {pdbStatus === 'loaded' && <CheckCircle className="w-4 h-4" />}
+                {pdbStatus === 'error' && <XCircle className="w-4 h-4" />}
+                {pdbMsg}
+              </div>
+            )}
+          </>
+        )}
+
+        {tab === 'import' && (
+          <>
+            <button
+              onClick={handleImport}
+              disabled={importStatus === 'loading'}
+              className="w-full h-24 rounded-xl border-2 border-dashed border-neutral-600 hover:border-brand flex flex-col items-center justify-center gap-2 text-sm text-neutral-400 hover:text-neutral-200 transition"
+            >
+              <Upload className="w-6 h-6" />
+              <span>Choose a molecule file</span>
+              <span className="text-xs text-neutral-500">.pdb .cif .mol2 .sdf</span>
+            </button>
+
+            {importMsg && (
+              <div className={`flex items-center gap-2 text-sm ${importStatus === 'loaded' ? 'text-emerald-400' : importStatus === 'error' ? 'text-red-400' : 'text-neutral-400'}`}>
+                {importStatus === 'loaded' && <CheckCircle className="w-4 h-4" />}
+                {importStatus === 'error' && <XCircle className="w-4 h-4" />}
+                {importMsg}
+              </div>
+            )}
+          </>
+        )}
+      </div>
+    </div>
+  );
+};
+
+export default MoleculePanel;

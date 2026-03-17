@@ -1,17 +1,27 @@
 import { contextBridge, ipcRenderer } from 'electron';
 
-// Keep the type local so the renderer doesn't need Electron types
-type SaveDialogOpts = {
-  title?: string;
-  defaultPath?: string;
-  filters?: Array<{ name: string; extensions: string[] }>;
-  properties?: string[];
-};
-
 const api = Object.freeze({
-  // simple availability flag for the UI
-  hasSaveDialog: true,
+  // Dialogs
+  showSaveDialog: (opts: {
+    title?: string;
+    defaultPath?: string;
+    filters?: Array<{ name: string; extensions: string[] }>;
+    properties?: string[];
+  }) => ipcRenderer.invoke('show-save-dialog', opts),
 
-  showSaveDialog: (opts: SaveDialogOpts) => ipcRenderer.invoke('show-save-dialog', opts),
+  showOpenDialog: (opts: {
+    title?: string;
+    filters?: Array<{ name: string; extensions: string[] }>;
+    properties?: string[];
+  }) => ipcRenderer.invoke('show-open-dialog', opts),
+
+  writeFile: (opts: { path: string; dataBase64: string }) =>
+    ipcRenderer.invoke('write-file', opts) as Promise<{ ok: boolean }>,
+
+  // Version checks for health panel
+  getNodeVersion: () => ipcRenderer.invoke('get-node-version') as Promise<string>,
+  getPythonVersion: () =>
+    ipcRenderer.invoke('get-python-version') as Promise<string>,
 });
-contextBridge.exposeInMainWorld('api', api);  
+
+contextBridge.exposeInMainWorld('api', api);
