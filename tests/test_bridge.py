@@ -1,4 +1,6 @@
 """Tests for the PyMOL AI Assistant bridge server API endpoints."""
+import json
+import zipfile
 
 
 def test_health_endpoint(client):
@@ -120,6 +122,25 @@ def test_project_load_not_found(client):
     """POST /project/load with nonexistent file returns 404."""
     resp = client.post("/project/load", json={"path": "/tmp/nonexistent.pymolai"})
     assert resp.status_code == 404
+
+
+def test_project_load_returns_metadata_and_session_data(client, tmp_path):
+    """POST /project/load returns both metadata and base64 session data."""
+    project_path = tmp_path / "example.pymolai"
+    metadata = {"name": "Example", "commands": [{"prompt": "Fetch PDB: 1CRN"}]}
+    session_bytes = b"fake-pse-session"
+
+    with zipfile.ZipFile(project_path, "w", zipfile.ZIP_DEFLATED) as zf:
+        zf.writestr("metadata.json", json.dumps(metadata))
+        zf.writestr("session.pse", session_bytes)
+
+    resp = client.post("/project/load", json={"path": str(project_path)})
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["ok"] is True
+    assert data["metadata"]["name"] == "Example"
+    assert isinstance(data["session_data"], str)
+    assert data["session_data"]
 
 
 def test_session_capture_no_plugin(client):

@@ -94,23 +94,42 @@ type State = {
     sessionData?: string | null;
   }) => string;
   setSwitchingProject: (value: boolean) => void;
+  resetWorkspace: (name?: string) => string;
 };
 
 const uid = () => Math.random().toString(36).slice(2);
-const initialProject: Project = {
-  id: uid(),
-  name: 'New Project',
-  createdAt: Date.now(),
-  updatedAt: Date.now(),
-};
+
+function createProjectRecord(name = 'New Project'): Project {
+  return {
+    id: uid(),
+    name,
+    createdAt: Date.now(),
+    updatedAt: Date.now(),
+  };
+}
+
+function createWorkspaceState(name = 'New Project') {
+  const project = createProjectRecord(name);
+  return {
+    project,
+    currentProjectId: project.id,
+    projects: [project],
+    logs: { [project.id]: [] as LogEntry[] },
+    notes: { [project.id]: '' },
+    projectMolecules: { [project.id]: {} as MoleculeInfo },
+    projectSessions: { [project.id]: null as string | null },
+  };
+}
+
+const initialWorkspace = createWorkspaceState();
 
 export const useStore = create<State>((set, get) => ({
-  currentProjectId: initialProject.id,
-  projects: [initialProject],
-  logs: { [initialProject.id]: [] },
-  notes: { [initialProject.id]: '' },
-  projectMolecules: { [initialProject.id]: {} },
-  projectSessions: { [initialProject.id]: null },
+  currentProjectId: initialWorkspace.currentProjectId,
+  projects: initialWorkspace.projects,
+  logs: initialWorkspace.logs,
+  notes: initialWorkspace.notes,
+  projectMolecules: initialWorkspace.projectMolecules,
+  projectSessions: initialWorkspace.projectSessions,
   draft: '',
   ui: { rightPanel: 'none', quickActionsExpanded: false },
 
@@ -150,12 +169,7 @@ export const useStore = create<State>((set, get) => ({
       ),
     })),
   createProject: (name) => {
-    const p = {
-      id: uid(),
-      name,
-      createdAt: Date.now(),
-      updatedAt: Date.now(),
-    };
+    const p = createProjectRecord(name);
     set((s) => ({
       projects: [p, ...s.projects],
       logs: { ...s.logs, [p.id]: [] },
@@ -255,37 +269,20 @@ export const useStore = create<State>((set, get) => ({
     return projectId;
   },
   setSwitchingProject: (value) => set({ switchingProject: value }),
+  resetWorkspace: (name = 'New Project') => {
+    const workspace = createWorkspaceState(name);
+    set((s) => ({
+      currentProjectId: workspace.currentProjectId,
+      projects: workspace.projects,
+      logs: workspace.logs,
+      notes: workspace.notes,
+      projectMolecules: workspace.projectMolecules,
+      projectSessions: workspace.projectSessions,
+      pendingRenameId: null,
+      switchingProject: false,
+      draft: '',
+      ui: { ...s.ui, rightPanel: 'none' },
+    }));
+    return workspace.currentProjectId;
+  },
 }));
-
-const STORAGE_KEY = 'pymol-ai-ui';
-
-try {
-  const saved = localStorage.getItem(STORAGE_KEY);
-  if (saved) {
-    const data = JSON.parse(saved);
-    useStore.setState({
-      currentProjectId: data.currentProjectId ?? initialProject.id,
-      projects: Array.isArray(data.projects) ? data.projects : [initialProject],
-      logs: data.logs ?? { [initialProject.id]: [] },
-      notes: data.notes ?? { [initialProject.id]: '' },
-      projectMolecules: data.projectMolecules ?? { [initialProject.id]: {} },
-    });
-  }
-} catch {
-  // ignore parse errors
-}
-
-useStore.subscribe((state) => {
-  const toSave = {
-    currentProjectId: state.currentProjectId,
-    projects: state.projects,
-    logs: state.logs,
-    notes: state.notes,
-    projectMolecules: state.projectMolecules,
-  };
-  try {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(toSave));
-  } catch {
-    // ignore storage errors
-  }
-});

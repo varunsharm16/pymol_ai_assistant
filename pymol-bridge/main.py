@@ -254,10 +254,15 @@ async def _broadcast_and_wait_session(
             client_last_seen.pop(ws, None)
 
     try:
-        # Wait for ACK first
-        await asyncio.wait_for(ack_fut, timeout=5.0)
-        # Then wait for session data
-        data = await asyncio.wait_for(sess_fut, timeout=timeout)
+        started = time.time()
+        ack = await asyncio.wait_for(ack_fut, timeout=timeout)
+        if isinstance(ack, dict) and ack.get("ok") is not True:
+            err = ack.get("error") or "Execution failed"
+            return None, {"ok": False, "error": err}, 500
+
+        elapsed = max(0.0, time.time() - started)
+        remaining = max(0.1, timeout - elapsed)
+        data = await asyncio.wait_for(sess_fut, timeout=remaining)
         return data, {"ok": True}, 200
     except asyncio.TimeoutError:
         pending.pop(mid, None)

@@ -21,6 +21,7 @@ import signal
 import socket
 import subprocess
 import sys
+import tempfile
 import threading
 import time
 import traceback
@@ -44,6 +45,10 @@ if _site_dir not in sys.path:
     sys.path.insert(0, _site_dir)
 
 from pymol import cmd  # noqa: E402
+try:
+    from pymol.Qt.utils import MainThreadCaller  # noqa: E402
+except Exception:
+    MainThreadCaller = None
 
 try:
     import websocket  # noqa: E402
@@ -136,6 +141,7 @@ _electron_proc = None
 _electron_log_handle = None
 _openai_client = None  # lazy-loaded
 _shutting_down = False
+_main_thread_caller = MainThreadCaller() if MainThreadCaller is not None else None
 
 
 # ---------------------------------------------------------------------------
@@ -344,6 +350,21 @@ def _ws_send_json(payload: dict):
             ws.send(text)
 
 
+def _temp_session_path() -> str:
+    """Create a temporary path for a native PyMOL session file."""
+    _CONFIG_DIR.mkdir(parents=True, exist_ok=True)
+    fd, path = tempfile.mkstemp(prefix="pymol-ai-session-", suffix=".pse", dir=str(_CONFIG_DIR))
+    os.close(fd)
+    return path
+
+
+def _run_in_pymol_thread(func):
+    """Run a callable on PyMOL's main Qt thread when available."""
+    if _main_thread_caller is not None:
+        return _main_thread_caller(func)
+    return func()
+
+
 # ---------------------------------------------------------------------------
 # Command execution
 # ---------------------------------------------------------------------------
@@ -377,37 +398,68 @@ def _execute_spec(spec: dict):
 
         # Session capture (for project save)
         if spec.get("name") == "get_session":
+            session_path = None
             try:
-                session_data = cmd.get_session()
-                import pickle
+                session_path = _temp_session_path()
+                def _capture_session():
+                    cmd.save(session_path, format="pse")
+                    cmd.sync(timeout=60.0)
 
-                encoded = base64.b64encode(pickle.dumps(session_data)).decode("ascii")
+                _run_in_pymol_thread(_capture_session)
+                encoded = base64.b64encode(Path(session_path).read_bytes()).decode("ascii")
                 _ws_send_ack(mid, ok=True, error=None)
                 # Send session data as a separate message
                 _ws_send_json({"type": "session_data", "id": mid, "data": encoded})
             except Exception as exc:
                 _log.error("get_session failed: %s", exc)
                 _ws_send_ack(mid, ok=False, error=str(exc))
+            finally:
+                try:
+                    if session_path:
+                        Path(session_path).unlink(missing_ok=True)
+                except Exception:
+                    pass
             return
 
         # Session restore (for project load)
         if spec.get("name") == "set_session":
+            session_path = None
             try:
-                import pickle
-
                 data = spec.get("arguments", {}).get("data", "")
-                session_data = pickle.loads(base64.b64decode(data))
-                cmd.set_session(session_data)
+                if not data:
+                    raise RuntimeError("session data required")
+                session_path = _temp_session_path()
+                Path(session_path).write_bytes(base64.b64decode(data))
+                def _restore_session():
+                    cmd.delete("all")
+                    cmd.deselect()
+                    cmd.load(session_path)
+                    cmd.sync(timeout=45.0)
+                    cmd.deselect()
+                    cmd.refresh()
+
+                _run_in_pymol_thread(_restore_session)
                 _ws_send_ack(mid, ok=True)
             except Exception as exc:
                 _log.error("set_session failed: %s", exc)
                 _ws_send_ack(mid, ok=False, error=str(exc))
+            finally:
+                try:
+                    if session_path:
+                        Path(session_path).unlink(missing_ok=True)
+                except Exception:
+                    pass
             return
 
         if spec.get("name") == "clear_workspace":
             try:
-                cmd.delete("all")
-                cmd.deselect()
+                def _clear_workspace():
+                    cmd.delete("all")
+                    cmd.deselect()
+                    cmd.sync(timeout=15.0)
+                    cmd.refresh()
+
+                _run_in_pymol_thread(_clear_workspace)
                 _ws_send_ack(mid, ok=True)
             except Exception as exc:
                 _log.error("clear_workspace failed: %s", exc)

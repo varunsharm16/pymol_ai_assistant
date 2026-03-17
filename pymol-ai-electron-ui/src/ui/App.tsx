@@ -9,7 +9,7 @@ import { Button } from './components/Button';
 import { Plus, Settings, Activity, Atom } from 'lucide-react';
 import ApiKeyModal from './components/ApiKeyModal';
 import { checkApiKey } from './lib/bridge';
-import { createBlankProjectFlow } from './lib/projectSync';
+import { createBlankProjectFlow, startFreshWorkspaceFlow } from './lib/projectSync';
 
 const Toolbar: React.FC = () => {
   const setPanel = useStore((s) => s.setRightPanel);
@@ -133,6 +133,18 @@ const App: React.FC = () => {
       if (!configured) setShowApiKeyModal(true);
     }).catch(() => {
       // Bridge not running yet — don't show modal
+    });
+  }, []);
+
+  React.useEffect(() => {
+    startFreshWorkspaceFlow().then((result) => {
+      if (!result.ok) {
+        useStore.getState().addLog({
+          prompt: 'Initialize workspace',
+          status: 'error',
+          message: result.error || 'Failed to initialize blank workspace.',
+        });
+      }
     });
   }, []);
 
