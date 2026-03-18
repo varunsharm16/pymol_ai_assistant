@@ -11,6 +11,7 @@ All notable changes to PyMOL AI Assistant will be documented in this file.
 - **Command-model unit tests** — pure Python tests for selection compilation and legacy-command normalization
 - **Parser regression tests** — lightweight Node-based parser tests without introducing a heavyweight frontend test runner
 - **macOS bootstrap installer** — one-command pre-clone setup that can install missing Git, Python, and Node via Homebrew before running the normal installer
+- **Windows bootstrap installer** — one-command pre-clone setup that can install missing Git, Python, and Node with `winget` or Chocolatey before running the normal installer
 
 ### Changed
 - Upgraded NL command prompting to emit the canonical command schema instead of the original fixed verb set

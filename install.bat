@@ -9,12 +9,17 @@ echo ======================================
 echo.
 
 REM ---- Check Python ----
+set PYTHON_CMD=python
 python --version >nul 2>&1
 if %errorlevel% neq 0 (
-    echo [X] Python is required. Install 3.8+ from https://python.org
-    exit /b 1
+    py --version >nul 2>&1
+    if %errorlevel% neq 0 (
+        echo [X] Python is required. Install 3.8+ from https://python.org
+        exit /b 1
+    )
+    set PYTHON_CMD=py
 )
-for /f "tokens=2 delims= " %%a in ('python --version 2^>^&1') do set PYVER=%%a
+for /f "tokens=2 delims= " %%a in ('%PYTHON_CMD% --version 2^>^&1') do set PYVER=%%a
 echo [OK] Python: %PYVER%
 
 REM ---- Check Node.js ----
@@ -50,7 +55,7 @@ REM ---- Step 1: Bridge server ----
 echo [1/3] Setting up bridge server...
 cd /d "%~dp0pymol-bridge"
 if not exist ".venv" (
-    python -m venv .venv
+    %PYTHON_CMD% -m venv .venv
 )
 call .venv\Scripts\activate.bat
 pip install --quiet --upgrade pip
@@ -124,7 +129,7 @@ REM ---- Write project root to config ----
 set CONFIG_DIR=%USERPROFILE%\.pymol
 set CONFIG_FILE=%CONFIG_DIR%\config.json
 if not exist "%CONFIG_DIR%" mkdir "%CONFIG_DIR%"
-python -c "import json,pathlib;p=pathlib.Path(r'%CONFIG_FILE%');cfg=json.loads(p.read_text()) if p.exists() else {};cfg['project_root']=r'%~dp0'.rstrip('\\');cfg['node_path']=r'%NODE_PATH%';cfg['npm_path']=r'%NPM_PATH%';p.write_text(json.dumps(cfg,indent=2))"
+%PYTHON_CMD% -c "import json,pathlib;p=pathlib.Path(r'%CONFIG_FILE%');cfg=json.loads(p.read_text()) if p.exists() else {};cfg['project_root']=r'%~dp0'.rstrip('\\');cfg['node_path']=r'%NODE_PATH%';cfg['npm_path']=r'%NPM_PATH%';p.write_text(json.dumps(cfg,indent=2))"
 echo [OK] Project root saved to %CONFIG_FILE%
 
 echo.
