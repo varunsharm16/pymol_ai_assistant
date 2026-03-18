@@ -48,7 +48,7 @@ function Get-PackageManager {
 
 function Ensure-ElevatedForInstall($Label) {
     if (-not (Test-IsAdmin)) {
-        throw "$Label is missing and installation requires elevated PowerShell. Rerun this bootstrap as Administrator."
+        throw "$Label is missing. To continue, open PowerShell as Administrator and run this bootstrap again."
     }
 }
 
@@ -150,17 +150,23 @@ function Ensure-Node($Manager) {
 }
 
 function Test-PyMOLInstalled {
+    # Phase 1: Fast check of common install locations
     $candidates = @(
         (Join-Path $env:ProgramFiles "PyMOL\PyMOLWin.exe"),
         (Join-Path ${env:ProgramFiles(x86)} "PyMOL\PyMOLWin.exe"),
         (Join-Path $env:LOCALAPPDATA "Programs\PyMOL\PyMOLWin.exe"),
-        (Join-Path $env:USERPROFILE "AppData\Local\Programs\PyMOL\PyMOLWin.exe")
+        (Join-Path $env:USERPROFILE "AppData\Local\Programs\PyMOL\PyMOLWin.exe"),
+        (Join-Path $env:USERPROFILE "Desktop\PyMOL\PyMOLWin.exe"),
+        (Join-Path $env:USERPROFILE "Downloads\PyMOL\PyMOLWin.exe"),
+        (Join-Path $env:USERPROFILE "OneDrive\Desktop\PyMOL\PyMOLWin.exe"),
+        (Join-Path $env:USERPROFILE "OneDrive\Downloads\PyMOL\PyMOLWin.exe")
     ) | Where-Object { $_ }
 
     foreach ($candidate in $candidates) {
         if (Test-Path $candidate) { return $true }
     }
 
+    # Check Schrodinger suite installs
     $schrodingerRoots = @(
         (Join-Path $env:ProgramFiles "Schrodinger"),
         (Join-Path ${env:ProgramFiles(x86)} "Schrodinger")
@@ -172,6 +178,43 @@ function Test-PyMOLInstalled {
             Where-Object { Test-Path $_ } |
             Select-Object -First 1
         if ($match) { return $true }
+    }
+
+    # Phase 2: Broad recursive search across priority folders, then all fixed drives
+    Write-Host "  PyMOL not found in common locations. Searching the entire computer (this may take a moment)..." -ForegroundColor Yellow
+
+    $priorityRoots = @(
+        $env:USERPROFILE,
+        $env:ProgramFiles,
+        ${env:ProgramFiles(x86)},
+        $env:LOCALAPPDATA,
+        $env:APPDATA
+    ) | Where-Object { $_ -and (Test-Path $_) } | Select-Object -Unique
+
+    foreach ($root in $priorityRoots) {
+        $found = Get-ChildItem -Path $root -Recurse -Filter "PyMOLWin.exe" -ErrorAction SilentlyContinue |
+            Select-Object -First 1
+        if ($found) {
+            Write-Host "  Found PyMOL at: $($found.FullName)" -ForegroundColor Green
+            return $true
+        }
+    }
+
+    # Last resort: search all fixed drives
+    $drives = Get-PSDrive -PSProvider FileSystem | Where-Object {
+        $_.Root -and (Test-Path $_.Root) -and ([System.IO.DriveInfo]::new($_.Root).DriveType -eq 'Fixed')
+    }
+
+    foreach ($drive in $drives) {
+        $driveRoot = $drive.Root
+        # Skip roots we already searched
+        $alreadySearched = $priorityRoots | Where-Object { $_ -and $_.StartsWith($driveRoot) }
+        $found = Get-ChildItem -Path $driveRoot -Recurse -Filter "PyMOLWin.exe" -ErrorAction SilentlyContinue |
+            Select-Object -First 1
+        if ($found) {
+            Write-Host "  Found PyMOL at: $($found.FullName)" -ForegroundColor Green
+            return $true
+        }
     }
 
     return $false
