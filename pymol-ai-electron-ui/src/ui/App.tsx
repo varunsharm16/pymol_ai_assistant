@@ -8,7 +8,7 @@ import { useStore } from './store';
 import { Button } from './components/Button';
 import { Plus, Settings, Activity, Atom } from 'lucide-react';
 import ApiKeyModal from './components/ApiKeyModal';
-import { checkApiKey } from './lib/bridge';
+import { checkApiKey, getCurrentSelection } from './lib/bridge';
 import {
   createBlankProjectFlow,
   isTerminalProjectActionError,
@@ -129,6 +129,7 @@ const App: React.FC = () => {
   const showApiKeyModal = useStore((s) => s.showApiKeyModal);
   const setShowApiKeyModal = useStore((s) => s.setShowApiKeyModal);
   const setApiKeyConfigured = useStore((s) => s.setApiKeyConfigured);
+  const setCurrentSelection = useStore((s) => s.setCurrentSelection);
 
   // Check API key on mount
   React.useEffect(() => {
@@ -151,6 +152,31 @@ const App: React.FC = () => {
       }
     });
   }, []);
+
+  React.useEffect(() => {
+    let cancelled = false;
+    let timeoutId: number | null = null;
+
+    const poll = async () => {
+      if (document.hidden) {
+        timeoutId = window.setTimeout(poll, 1500);
+        return;
+      }
+      const res = await getCurrentSelection().catch(() => ({ ok: false as const }));
+      if (!cancelled) {
+        setCurrentSelection(res.ok ? res.selection || null : null);
+        timeoutId = window.setTimeout(poll, 1200);
+      }
+    };
+
+    poll();
+    return () => {
+      cancelled = true;
+      if (timeoutId !== null) {
+        window.clearTimeout(timeoutId);
+      }
+    };
+  }, [setCurrentSelection]);
 
   return (
     <div

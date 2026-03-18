@@ -1,5 +1,5 @@
 """
-PyMOL AI Assistant Plugin — v0.1.0-alpha
+PyMOL AI Assistant Plugin — v0.1.1-alpha
 ========================================
 Type ``ai`` in PyMOL to launch the full system:
   1. Bridge server (FastAPI on 127.0.0.1:5179)
@@ -10,6 +10,7 @@ All interaction happens through the Electron UI — no Qt dialogs.
 """
 import atexit
 import base64
+import importlib.util
 import inspect
 import json
 import logging
@@ -44,7 +45,79 @@ _site_dir = os.path.expanduser("~/.pymol/site-packages")
 if _site_dir not in sys.path:
     sys.path.insert(0, _site_dir)
 
-from pymol import cmd  # noqa: E402
+_BOOT_CONFIG_PATH = Path.home() / ".pymol" / "config.json"
+
+
+def _load_command_model_symbols():
+    try:
+        from .command_model import (  # noqa: E402
+            CANONICAL_ACTIONS,
+            ONLY_ONE_ACTION_ERROR,
+            compile_selection_spec,
+            describe_selection_spec,
+            normalize_command_spec,
+            normalize_sequence_format,
+        )
+        return {
+            "CANONICAL_ACTIONS": CANONICAL_ACTIONS,
+            "ONLY_ONE_ACTION_ERROR": ONLY_ONE_ACTION_ERROR,
+            "compile_selection_spec": compile_selection_spec,
+            "describe_selection_spec": describe_selection_spec,
+            "normalize_command_spec": normalize_command_spec,
+            "normalize_sequence_format": normalize_sequence_format,
+        }
+    except Exception:
+        pass
+
+    candidates = []
+
+    current_file = globals().get("__file__")
+    if current_file:
+        candidates.append(Path(current_file).resolve().with_name("command_model.py"))
+
+    try:
+        import inspect as _inspect
+
+        source_file = _inspect.getsourcefile(_load_command_model_symbols)
+        if source_file:
+            candidates.append(Path(source_file).resolve().with_name("command_model.py"))
+    except Exception:
+        pass
+
+    try:
+        if _BOOT_CONFIG_PATH.exists():
+            cfg = json.loads(_BOOT_CONFIG_PATH.read_text(encoding="utf-8"))
+            root = (cfg.get("project_root") or "").strip()
+            if root:
+                candidates.append(Path(root).resolve() / "plugin" / "command_model.py")
+    except Exception:
+        pass
+
+    seen = set()
+    for path in candidates:
+        key = str(path)
+        if key in seen:
+            continue
+        seen.add(key)
+        if not path.exists():
+            continue
+        spec = importlib.util.spec_from_file_location("pymol_ai_command_model", path)
+        if spec is None or spec.loader is None:
+            continue
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+        return {
+            "CANONICAL_ACTIONS": module.CANONICAL_ACTIONS,
+            "ONLY_ONE_ACTION_ERROR": module.ONLY_ONE_ACTION_ERROR,
+            "compile_selection_spec": module.compile_selection_spec,
+            "describe_selection_spec": module.describe_selection_spec,
+            "normalize_command_spec": module.normalize_command_spec,
+            "normalize_sequence_format": module.normalize_sequence_format,
+        }
+
+    raise ImportError("Could not locate command_model.py for the PyMOL AI Assistant plugin")
+
+from pymol import cmd, util  # noqa: E402
 try:
     from pymol.Qt.utils import MainThreadCaller  # noqa: E402
 except Exception:
@@ -68,6 +141,14 @@ except ImportError:
         "Run: pip install openai   (in PyMOL's Python)"
     )
 
+_command_model_symbols = _load_command_model_symbols()
+CANONICAL_ACTIONS = _command_model_symbols["CANONICAL_ACTIONS"]
+ONLY_ONE_ACTION_ERROR = _command_model_symbols["ONLY_ONE_ACTION_ERROR"]
+compile_selection_spec = _command_model_symbols["compile_selection_spec"]
+describe_selection_spec = _command_model_symbols["describe_selection_spec"]
+normalize_command_spec = _command_model_symbols["normalize_command_spec"]
+normalize_sequence_format = _command_model_symbols["normalize_sequence_format"]
+
 # ---------------------------------------------------------------------------
 # Constants & paths (cross-platform)
 # ---------------------------------------------------------------------------
@@ -76,6 +157,13 @@ _CONFIG_PATH = Path.home() / ".pymol" / "config.json"
 _CONFIG_DIR = _CONFIG_PATH.parent
 BRIDGE_URL = "ws://127.0.0.1:5179/bridge"
 BRIDGE_HTTP = "http://127.0.0.1:5179"
+DEFAULT_OPENAI_MODEL = "gpt-5.4-mini"
+SEQUENCE_FORMAT_TO_SETTING = {
+    "residue_codes": 0,
+    "residue_names": 1,
+    "atom_names": 2,
+    "chain_identifiers": 3,
+}
 
 
 def _detect_project_root() -> Path:
@@ -172,6 +260,12 @@ def _get_api_key() -> str:
     return key
 
 
+def _get_openai_model() -> str:
+    cfg = _read_config()
+    model = str(cfg.get("openai_model") or "").strip()
+    return model or DEFAULT_OPENAI_MODEL
+
+
 def _get_openai_client():
     """Lazy-load the OpenAI client on first LLM call."""
     global _openai_client
@@ -194,34 +288,6 @@ def _get_openai_client():
 # ---------------------------------------------------------------------------
 # Helper functions for PyMOL commands
 # ---------------------------------------------------------------------------
-def color_residue(residue: str, chain: str, color: str):
-    cmd.deselect()
-    raw = residue.upper()
-    chain = chain.upper() if chain else ""
-    if "(" in raw and ")" in raw:
-        raw = raw.split("(", 1)[1].split(")", 1)[0]
-    raw = "".join(re.findall(r"[A-Z]", raw))
-    if len(raw) == 1 and raw in RES_MAP:
-        raw = RES_MAP[raw]
-    sel = f"resn {raw}" + (f" and chain {chain}" if chain else "")
-    _log.debug("color_residue selection: %s, color: %s", sel, color)
-    cmd.color(color, sel)
-
-
-def color_chain(chain: str, color: str):
-    chain = chain.upper()
-    _log.debug("color_chain: chain %s, color: %s", chain, color)
-    if chain == "ALL":
-        cmd.color(color, "all")
-    else:
-        cmd.color(color, f"chain {chain}")
-
-
-def color_all(color: str):
-    _log.debug("color_all: color %s", color)
-    cmd.color(color, "all")
-
-
 def set_background(color: str):
     _log.debug("set_background: color %s", color)
     cmd.bg_color(color)
@@ -230,12 +296,6 @@ def set_background(color: str):
 def rotate_view(axis: str, angle: float):
     _log.debug("rotate_view: axis %s, angle %s", axis, angle)
     cmd.rotate(axis, angle)
-
-
-def set_cartoon(representation: str):
-    _log.debug("set_cartoon: representation %s", representation)
-    cmd.hide("everything", "all")
-    cmd.show(representation, "all")
 
 
 def snapshot(filename: str):
@@ -250,15 +310,7 @@ def snapshot(filename: str):
     cmd.png(filename, dpi=300)
 
 
-FUNCTION_MAP = {
-    "color_residue": color_residue,
-    "color_chain": color_chain,
-    "color_all": color_all,
-    "set_background": set_background,
-    "rotate_view": rotate_view,
-    "set_cartoon": set_cartoon,
-    "snapshot": snapshot,
-}
+CANONICAL_FUNCTION_MAP = {}
 
 
 # ---------------------------------------------------------------------------
@@ -277,52 +329,254 @@ def _downloads_snap_path(basename: str | None = None) -> str:
     return str(base_dir / basename)
 
 
-# ---------------------------------------------------------------------------
-# Normalization (shared for bridge and local paths)
-# ---------------------------------------------------------------------------
-def _normalize_action(name: str, args: dict) -> dict:
-    if not isinstance(args, dict):
-        return {}
+def _normalize_color(color: str) -> str:
+    col = (color or "").strip()
+    if col.startswith("#") and len(col) == 7:
+        cname = f"c_{col[1:].lower()}"
+        rgb = [int(col[i : i + 2], 16) / 255 for i in (1, 3, 5)]
+        cmd.set_color(cname, rgb)
+        return cname
+    return col.lower()
 
-    # British colour → color
-    if "colour" in args and "color" not in args:
-        args["color"] = args.pop("colour")
 
-    # residue_name → residue
-    if "residue_name" in args and "residue" not in args:
-        args["residue"] = args.pop("residue_name")
+def _selection_from_target(target: dict, role: str = "target") -> str:
+    selection = compile_selection_spec(target, residue_map=RES_MAP)
+    kind = target["kind"]
+    object_name = target.get("object")
+    if object_name:
+        names = set(cmd.get_names("objects"))
+        if object_name not in names:
+            raise ValueError(f"Unknown object '{object_name}'")
+    if kind == "current_selection" and cmd.count_atoms(selection) == 0:
+        raise ValueError("Current selection is empty")
+    if cmd.count_atoms(selection) == 0:
+        desc = describe_selection_spec(target, residue_map=RES_MAP)
+        raise ValueError(f"{role.title()} selection is empty: {desc}")
+    return selection
 
-    if name == "color_residue":
-        args.setdefault("residue", "")
-        args.setdefault("chain", "")
-        if isinstance(args.get("chain"), str):
-            args["chain"] = args["chain"].upper()
 
-    if name == "color_chain" and isinstance(args.get("chain"), str):
-        args["chain"] = args["chain"].upper()
+def _default_measure_name(prefix: str, *targets: dict) -> str:
+    def _slug(target: dict) -> str:
+        desc = describe_selection_spec(target, residue_map=RES_MAP)
+        return re.sub(r"[^a-z0-9]+", "_", desc.lower()).strip("_") or "target"
 
-    if name == "snapshot":
-        args.setdefault("filename", "")
+    parts = [_slug(target) for target in targets]
+    return f"{prefix}_{'_'.join(parts)}"
 
-    if name == "set_cartoon":
-        if "cartoon_type" in args and "representation" not in args:
-            args["representation"] = args.pop("cartoon_type")
-        if "style" in args and "representation" not in args:
-            args["representation"] = args.pop("style")
-        args.setdefault("representation", "cartoon")
 
-    # hex colors → named via set_color
-    col = args.get("color")
-    if isinstance(col, str) and col.startswith("#") and len(col) == 7:
-        try:
-            cname = f"c_{col[1:].lower()}"
-            rgb = [int(col[i : i + 2], 16) / 255 for i in (1, 3, 5)]
-            cmd.set_color(cname, rgb)
-            args["color"] = cname
-        except Exception:
-            pass
+def show_representation(target: dict, representation: str):
+    selection = _selection_from_target(target)
+    cmd.show(representation, selection)
 
-    return args
+
+def hide_representation(target: dict, representation: str):
+    selection = _selection_from_target(target)
+    cmd.hide(representation, selection)
+
+
+def isolate_selection(target: dict, representation: str | None = None):
+    selection = _selection_from_target(target)
+    cmd.hide("everything", "all")
+    cmd.show(representation or "cartoon", selection)
+    cmd.zoom(selection)
+
+
+def remove_selection(target: dict):
+    selection = _selection_from_target(target)
+    cmd.remove(selection)
+
+
+def color_selection(target: dict, color: str):
+    selection = _selection_from_target(target)
+    cmd.color(_normalize_color(color), selection)
+
+
+def color_by_chain(target: dict):
+    selection = _selection_from_target(target)
+    util.chainbow(selection)
+
+
+def color_by_element(target: dict):
+    selection = _selection_from_target(target)
+    util.cbag(selection)
+
+
+def set_transparency(target: dict, value: float, representation: str = "surface"):
+    selection = _selection_from_target(target)
+    setting_name = {
+        "surface": "transparency",
+        "sticks": "stick_transparency",
+        "cartoon": "cartoon_transparency",
+        "spheres": "sphere_transparency",
+    }[representation]
+    cmd.set(setting_name, value, selection)
+
+
+def label_selection(target: dict, mode: str = "residue", template: str | None = None):
+    selection = _selection_from_target(target)
+    if mode == "atom":
+        expression = template or "name"
+        cmd.label(selection, expression)
+        return
+
+    expression = template or '"%s-%s" % (resn,resi)'
+    label_sel = f"({selection}) and name CA+P"
+    if cmd.count_atoms(label_sel) == 0:
+        label_sel = selection
+    cmd.label(label_sel, expression)
+
+
+def zoom_selection(target: dict):
+    selection = _selection_from_target(target)
+    cmd.zoom(selection)
+
+
+def orient_selection(target: dict):
+    selection = _selection_from_target(target)
+    cmd.orient(selection)
+
+
+def measure_distance(source: dict, target: dict, object_name: str | None = None):
+    source_sel = _selection_from_target(source, role="source")
+    target_sel = _selection_from_target(target, role="target")
+    name = object_name or _default_measure_name("distance", source, target)
+    cmd.distance(name, source_sel, target_sel)
+
+
+def show_contacts(source: dict, target: dict, mode: str = "polar", object_name: str | None = None):
+    source_sel = _selection_from_target(source, role="source")
+    target_sel = _selection_from_target(target, role="target")
+    name = object_name or _default_measure_name("contacts", source, target)
+    distance_mode = 2 if mode == "polar" else 0
+    cmd.distance(name, source_sel, target_sel, mode=distance_mode)
+
+
+def align_objects(mobile: dict, target: dict, method: str = "align"):
+    if mobile.get("kind") != "object" or target.get("kind") != "object":
+        raise ValueError("align_objects requires both mobile and target to be object targets")
+    mobile_sel = _selection_from_target(mobile, role="mobile")
+    target_sel = _selection_from_target(target, role="target")
+    if method != "align":
+        raise ValueError(f"Unsupported alignment method: {method}")
+    cmd.align(mobile_sel, target_sel)
+
+
+def show_sequence_view():
+    cmd.set("seq_view", 1)
+    cmd.refresh()
+
+
+def hide_sequence_view():
+    cmd.set("seq_view", 0)
+    cmd.refresh()
+
+
+def set_sequence_view_format(format: str):
+    canonical = normalize_sequence_format(format)
+    cmd.set("seq_view", 1)
+    cmd.set("seq_view_format", SEQUENCE_FORMAT_TO_SETTING[canonical])
+    cmd.refresh()
+
+
+def _selection_atom_records(selection_name: str):
+    model = cmd.get_model(selection_name)
+    return list(getattr(model, "atom", []) or [])
+
+
+def _selection_target_from_atoms(atoms: list[object]) -> dict:
+    first = atoms[0]
+    same_object = all(getattr(atom, "model", "") == getattr(first, "model", "") for atom in atoms)
+    same_chain = all(getattr(atom, "chain", "") == getattr(first, "chain", "") for atom in atoms)
+    same_resn = all(getattr(atom, "resn", "") == getattr(first, "resn", "") for atom in atoms)
+    same_resi = all(str(getattr(atom, "resi", "")) == str(getattr(first, "resi", "")) for atom in atoms)
+    same_name = all(getattr(atom, "name", "") == getattr(first, "name", "") for atom in atoms)
+
+    if len(atoms) == 1 or (same_object and same_chain and same_resn and same_resi and same_name):
+        target = {
+            "kind": "atom",
+            "atom": getattr(first, "name", ""),
+            "residue": getattr(first, "resn", ""),
+            "resi": str(getattr(first, "resi", "")),
+        }
+        if getattr(first, "chain", ""):
+            target["chain"] = getattr(first, "chain", "")
+        if getattr(first, "model", ""):
+            target["object"] = getattr(first, "model", "")
+        return target
+
+    if same_object and same_chain and same_resn and same_resi:
+        target = {
+            "kind": "residue",
+            "residue": getattr(first, "resn", ""),
+            "resi": str(getattr(first, "resi", "")),
+        }
+        if getattr(first, "chain", ""):
+            target["chain"] = getattr(first, "chain", "")
+        if getattr(first, "model", ""):
+            target["object"] = getattr(first, "model", "")
+        return target
+
+    if same_object and getattr(first, "model", ""):
+        return {"kind": "object", "object": getattr(first, "model", "")}
+
+    return {"kind": "current_selection"}
+
+
+def _selection_tag_label(target: dict, count: int) -> str:
+    kind = target.get("kind")
+    if kind == "atom":
+        base = f"{target.get('residue', '')}{target.get('resi', '')}".strip()
+        chain = target.get("chain")
+        prefix = f"{chain}:" if chain else ""
+        return f"@{prefix}{base}:{target.get('atom', '')}".rstrip(":")
+    if kind == "residue":
+        base = f"{target.get('residue', '')}{target.get('resi', '')}".strip()
+        chain = target.get("chain")
+        prefix = f"{chain}:" if chain else ""
+        return f"@{prefix}{base}"
+    if kind == "object":
+        return f"@obj:{target.get('object', '')}"
+    return f"@selection[{count}]"
+
+
+def _current_selection_info() -> dict | None:
+    for selection_name in ("sele", "pk1", "pk2", "pk3", "pk4"):
+        if cmd.count_atoms(selection_name) == 0:
+            continue
+        atoms = _selection_atom_records(selection_name)
+        if not atoms:
+            continue
+        target = _selection_target_from_atoms(atoms)
+        count = len(atoms)
+        return {
+            "label": _selection_tag_label(target, count),
+            "description": describe_selection_spec(target, residue_map=RES_MAP),
+            "target": target,
+            "source": selection_name,
+            "count": count,
+        }
+    return None
+
+
+CANONICAL_FUNCTION_MAP = {
+    "show_representation": show_representation,
+    "hide_representation": hide_representation,
+    "isolate_selection": isolate_selection,
+    "remove_selection": remove_selection,
+    "color_selection": color_selection,
+    "color_by_chain": color_by_chain,
+    "color_by_element": color_by_element,
+    "set_transparency": set_transparency,
+    "label_selection": label_selection,
+    "zoom_selection": zoom_selection,
+    "orient_selection": orient_selection,
+    "measure_distance": measure_distance,
+    "show_contacts": show_contacts,
+    "align_objects": align_objects,
+    "show_sequence_view": show_sequence_view,
+    "hide_sequence_view": hide_sequence_view,
+    "set_sequence_view_format": set_sequence_view_format,
+}
 
 
 # ---------------------------------------------------------------------------
@@ -466,10 +720,23 @@ def _execute_spec(spec: dict):
                 _ws_send_ack(mid, ok=False, error=str(exc))
             return
 
-        # PDB fetch
-        if spec.get("name") == "fetch_pdb":
+        if spec.get("name") == "get_selection_info":
             try:
-                pdb_id = spec.get("arguments", {}).get("pdb_id", "")
+                info = _run_in_pymol_thread(_current_selection_info)
+                _ws_send_ack(mid, ok=True)
+                _ws_send_json({"type": "selection_data", "id": mid, "selection": info})
+            except Exception as exc:
+                _log.error("get_selection_info failed: %s", exc)
+                _ws_send_ack(mid, ok=False, error=str(exc))
+            return
+
+        normalized = normalize_command_spec(spec, residue_map=RES_MAP)
+        name = normalized["name"]
+        args = normalized.get("arguments") or {}
+
+        if name == "fetch_pdb":
+            try:
+                pdb_id = args.get("pdb_id", "")
                 if not pdb_id:
                     _ws_send_ack(mid, ok=False, error="pdb_id required")
                     return
@@ -481,10 +748,9 @@ def _execute_spec(spec: dict):
                 _ws_send_ack(mid, ok=False, error=str(exc))
             return
 
-        # File import
-        if spec.get("name") == "load_file":
+        if name == "load_file":
             try:
-                file_path = spec.get("arguments", {}).get("file_path", "")
+                file_path = args.get("file_path", "")
                 if not file_path or not Path(file_path).exists():
                     _ws_send_ack(mid, ok=False, error="File not found")
                     return
@@ -496,20 +762,16 @@ def _execute_spec(spec: dict):
                 _ws_send_ack(mid, ok=False, error=str(exc))
             return
 
-        name = (spec.get("name") or "").lower()
-        args = _normalize_action(name, spec.get("arguments") or {})
-
-        func = FUNCTION_MAP.get(name)
-        if not func:
-            _log.warning("Unknown action: %s", name)
-            _ws_send_ack(mid, ok=False, error=f"Unknown action: {name}")
+        if name == "set_background":
+            set_background(args.get("color", ""))
+            _ws_send_ack(mid, ok=True)
             return
 
-        sig = inspect.signature(func)
-        filtered = {k: v for k, v in args.items() if k in sig.parameters}
-        _log.info("Executing %s(%s)", name, filtered)
+        if name == "snapshot":
+            snapshot(args.get("filename", ""))
+            _ws_send_ack(mid, ok=True)
+            return
 
-        # Rotate handling (various argument forms)
         if name == "rotate_view":
             if "axis" in args and "angle" in args:
                 rotate_view(args["axis"], args["angle"])
@@ -537,7 +799,17 @@ def _execute_spec(spec: dict):
             if handled:
                 _ws_send_ack(mid, ok=True)
                 return
+            raise ValueError("rotate_view requires axis/angle or rotation values")
 
+        func = CANONICAL_FUNCTION_MAP.get(name)
+        if not func:
+            _log.warning("Unknown action: %s", name)
+            _ws_send_ack(mid, ok=False, error=f"Unknown action: {name}")
+            return
+
+        sig = inspect.signature(func)
+        filtered = {k: v for k, v in args.items() if k in sig.parameters}
+        _log.info("Executing %s(%s)", name, filtered)
         func(**filtered)
         _ws_send_ack(mid, ok=True)
     except Exception as exc:
@@ -630,29 +902,59 @@ def _call_llm(prompt: str) -> dict:
     client = _get_openai_client()
 
     system_msg = (
-        "You are a PyMOL assistant. The user asks for one simple action. "
+        "You are a PyMOL assistant. The user asks for exactly one simple action. "
+        f"If the request contains multiple actions, respond with JSON error text: {json.dumps(ONLY_ONE_ACTION_ERROR)}.\n"
         "Respond with exactly one JSON OBJECT with keys:\n"
         " • name: one of "
-        + ", ".join(f'"{k}"' for k in FUNCTION_MAP.keys())
+        + ", ".join(f'"{k}"' for k in sorted(CANONICAL_ACTIONS | {"set_background", "rotate_view", "snapshot"}))
         + "\n"
         " • arguments: an OBJECT of keyword arguments.\n"
-        "No arrays or extra keys. Examples:\n"
-        '  Color C in chain A magenta → {"name":"color_residue",'
-        '"arguments":{"residue":"C","chain":"A","color":"magenta"}}'
+        "SelectionSpec shapes:\n"
+        ' • {"kind":"all"}\n'
+        ' • {"kind":"protein"}\n'
+        ' • {"kind":"ligand"}\n'
+        ' • {"kind":"water"}\n'
+        ' • {"kind":"metals"}\n'
+        ' • {"kind":"hydrogens"}\n'
+        ' • {"kind":"current_selection"}\n'
+        ' • {"kind":"chain","chain":"A","object":"1crn"}\n'
+        ' • {"kind":"residue","residue":"ASP","resi":"21","chain":"B","object":"1crn"}\n'
+        ' • {"kind":"atom","atom":"CA","residue":"ASP","resi":"21","chain":"B","object":"1crn"}\n'
+        ' • {"kind":"object","object":"my_obj"}\n'
+        "Sequence commands:\n"
+        ' • {"name":"show_sequence_view","arguments":{}}\n'
+        ' • {"name":"hide_sequence_view","arguments":{}}\n'
+        ' • {"name":"set_sequence_view_format","arguments":{"format":"residue_codes"}}\n'
+        "Use canonical command names instead of legacy names like color_residue or set_cartoon.\n"
+        "If the user message includes a selection tag mapping, use the mapped SelectionSpec exactly.\n"
+        "Do not return arrays. Do not chain actions. Examples:\n"
+        ' remove waters -> {"name":"remove_selection","arguments":{"target":{"kind":"water"}}}\n'
+        ' measure distance between selected -> {"name":"measure_distance","arguments":{"source":{"kind":"current_selection"},"target":{"kind":"current_selection"}}}\n'
+        ' show ligand as sticks -> {"name":"show_representation","arguments":{"target":{"kind":"ligand"},"representation":"sticks"}}\n'
+        ' show sequence -> {"name":"show_sequence_view","arguments":{}}\n'
+        ' show sequence as residue names -> {"name":"set_sequence_view_format","arguments":{"format":"residue_names"}}\n'
+        ' label residues in chain A -> {"name":"label_selection","arguments":{"target":{"kind":"chain","chain":"A"},"mode":"residue"}}\n'
+        ' set surface transparency to 0.4 on protein -> {"name":"set_transparency","arguments":{"target":{"kind":"protein"},"representation":"surface","value":0.4}}\n'
+        ' measure distance between ligand and residue ASP in chain B -> {"name":"measure_distance","arguments":{"source":{"kind":"ligand"},"target":{"kind":"residue","residue":"ASP","chain":"B"}}}\n'
+        ' align object ligand_pose to object receptor -> {"name":"align_objects","arguments":{"mobile":{"kind":"object","object":"ligand_pose"},"target":{"kind":"object","object":"receptor"},"method":"align"}}'
     )
 
     resp = client.chat.completions.create(
-        model="gpt-3.5-turbo",
+        model=_get_openai_model(),
         messages=[
             {"role": "system", "content": system_msg},
             {"role": "user", "content": prompt},
         ],
         temperature=0.1,
-        max_tokens=200,
+        max_completion_tokens=200,
     )
     content = resp.choices[0].message.content.strip()
     _log.debug("LLM raw response: %s", content)
     spec = json.loads(content)
+    if isinstance(spec, str):
+        raise RuntimeError(spec)
+    if not isinstance(spec, dict):
+        raise RuntimeError("Malformed LLM response")
     return spec
 
 

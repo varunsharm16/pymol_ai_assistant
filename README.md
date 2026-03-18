@@ -3,7 +3,7 @@
 Control PyMOL using natural language. Just describe what you want in plain English—no need to memorize complex commands.
 
 ![License](https://img.shields.io/badge/license-MIT-green)
-![Version](https://img.shields.io/badge/version-0.1.0--alpha-blue)
+![Version](https://img.shields.io/badge/version-0.1.1--alpha-blue)
 
 ---
 
@@ -45,9 +45,11 @@ The AI interprets your intent and executes the correct PyMOL command.
 
 - 🗣️ **Natural language commands** — Describe actions in plain English
 - 🖥️ **Desktop app** — Persistent UI with command history and projects
-- 🎨 **Visualization controls** — Color residues, chains, change representations
+- 🎨 **Visualization controls** — Show/hide, isolate, recolor, label, and style common structural targets
 - 📸 **Screenshots** — Save publication-quality snapshots
 - 🔄 **View manipulation** — Rotate and orient your molecule
+- 🧹 **Cleanup tools** — Remove waters, metals, hydrogens, or isolate the ligand/protein
+- 📏 **Analysis helpers** — Measure distances, show polar contacts, align named objects
 - 🧪 **PDB fetch & import** — Load molecules by PDB ID or local file
 - 💾 **Project save/load** — Save your session and command history as `.pymolai` files
 - ✅ **Health check** — Built-in system diagnostic to verify everything works
@@ -56,13 +58,14 @@ The AI interprets your intent and executes the correct PyMOL command.
 
 | Action | Example Prompt |
 |--------|----------------|
-| Color residues | "Color all cysteines magenta" |
-| Color chains | "Make chain A blue" |
-| Color everything | "Color the whole structure green" |
-| Background | "Set background to white" |
-| Rotate view | "Rotate 45 degrees around the Y axis" |
-| Representation | "Show as cartoon" / "Show surface" |
-| Snapshot | "Take a screenshot" |
+| Cleanup | "Remove waters" / "Remove metals" |
+| Styling | "Show ligand as sticks" / "Set surface transparency to 0.4 on protein" |
+| Coloring | "Color protein by chain" / "Color ligand by element" |
+| Labels | "Label residues in chain A" |
+| Navigation | "Zoom to ligand" / "Orient on chain B" |
+| Analysis | "Measure distance between ligand and residue ASP in chain B" |
+| Contacts & alignment | "Show polar contacts between ligand and residue ASP in chain B" / "Align object ligand_pose to object receptor" |
+| Legacy basics | "Color all cysteines magenta" / "Set background to white" / "Rotate 45 degrees around the Y axis" |
 
 ## Architecture
 
@@ -84,7 +87,8 @@ The AI interprets your intent and executes the correct PyMOL command.
 ```
 pymol_ai_assistant/
 ├── plugin/                     # PyMOL plugin
-│   └── __init__.py             #   Unified launcher, WS client, command executor
+│   ├── __init__.py             #   Unified launcher, WS client, command executor
+│   └── command_model.py        #   Selection compilation + command normalization
 ├── pymol-bridge/               # FastAPI WebSocket bridge server
 │   ├── main.py                 #   REST API + WebSocket relay
 │   └── requirements.txt
@@ -95,7 +99,7 @@ pymol_ai_assistant/
 ├── tests/                      # pytest test suite
 ├── install.sh                  # macOS/Linux installer
 ├── install.bat                 # Windows installer
-├── version.py                  # Version: 0.1.0-alpha
+├── version.py                  # Version: 0.1.1-alpha
 └── CHANGELOG.md
 ```
 

@@ -2,6 +2,20 @@
 
 All notable changes to PyMOL AI Assistant will be documented in this file.
 
+## [0.1.1-alpha] — 2026-03-17
+
+### Added
+- **Generalized action + selection model** — canonical commands for showing, hiding, isolating, removing, coloring, labeling, transparency, zoom/orient, distance measurement, polar contacts, and alignment
+- **Target-aware selections** — first-class support for protein, ligand, water, metals, hydrogens, chain, residue, object, current selection, and all
+- **Expanded parser coverage** — deterministic parsing for cleanup, visualization, navigation, and analysis prompts
+- **Command-model unit tests** — pure Python tests for selection compilation and legacy-command normalization
+- **Parser regression tests** — lightweight Node-based parser tests without introducing a heavyweight frontend test runner
+
+### Changed
+- Upgraded NL command prompting to emit the canonical command schema instead of the original fixed verb set
+- Expanded Quick Actions, Toolbox, and Help examples to surface the new capabilities
+- Bumped runtime/app version markers to `0.1.1-alpha`
+
 ## [0.1.0-alpha] — 2026-03-17
 
 ### Added

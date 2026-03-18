@@ -199,6 +199,12 @@ def test_session_clear_no_plugin(client):
     assert resp.status_code == 503
 
 
+def test_selection_current_no_plugin(client):
+    """GET /selection/current returns 503 when no plugin is connected."""
+    resp = client.get("/selection/current")
+    assert resp.status_code == 503
+
+
 def test_timeout_map(client):
     """Bridge timeout helper returns command-specific values."""
     import main
@@ -206,4 +212,5 @@ def test_timeout_map(client):
     assert main._timeout_for_command("nl_prompt") == 45.0
     assert main._timeout_for_command("fetch_pdb") == 45.0
     assert main._timeout_for_command("load_file") == 20.0
+    assert main._timeout_for_command("get_selection_info") == 5.0
     assert main._timeout_for_command("unknown") == 8.0

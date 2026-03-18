@@ -355,42 +355,122 @@ const ToolBoxPanel: React.FC = () => {
   const [open, setOpen] = React.useState<string | null>(null);
   const [hoverId, setHoverId] = React.useState<string | null>(null);
 
-  const functions = [
+  const sections = [
     {
-      key: 'color_residue',
-      label: 'Color Residue',
-      desc: 'Color a residue, optionally by chain.',
-      examples: ['Color ALA in chain B green', 'Color CYS yellow'],
+      title: 'Selection & Cleanup',
+      functions: [
+        {
+          key: 'remove_selection',
+          label: 'Remove Selection',
+          desc: 'Delete common disposable targets like waters, metals, or hydrogens.',
+          examples: ['Remove waters', 'Remove metals', 'Remove hydrogens'],
+        },
+        {
+          key: 'isolate_selection',
+          label: 'Isolate Target',
+          desc: 'Hide everything except the chosen target.',
+          examples: ['Isolate ligand', 'Hide everything except ligand'],
+        },
+      ],
     },
     {
-      key: 'color_chain',
-      label: 'Color Chain',
-      desc: 'Color an entire chain.',
-      examples: ['Color chain A red', 'Color all chains white'],
+      title: 'Visual Styles',
+      functions: [
+        {
+          key: 'show_representation',
+          label: 'Show Representation',
+          desc: 'Display a target with a chosen representation.',
+          examples: ['Show ligand as sticks', 'Show protein as cartoon', 'Show surface representation of the protein'],
+        },
+        {
+          key: 'color_selection',
+          label: 'Color Selection',
+          desc: 'Color a residue, chain, ligand, protein, or all atoms.',
+          examples: ['Color ALA in chain B green', 'Color chain A red', 'Color protein grey'],
+        },
+        {
+          key: 'color_by_chain',
+          label: 'Color By Chain',
+          desc: 'Apply chain-aware colors to the target.',
+          examples: ['Color protein by chain', 'Color all by chain'],
+        },
+        {
+          key: 'color_by_element',
+          label: 'Color By Element',
+          desc: 'Apply element-based coloring to the target.',
+          examples: ['Color ligand by element', 'Color selection by element'],
+        },
+        {
+          key: 'set_transparency',
+          label: 'Set Transparency',
+          desc: 'Change representation-specific transparency.',
+          examples: ['Set surface transparency to 0.4 on protein', 'Set sticks transparency to 0.25 on ligand'],
+        },
+        {
+          key: 'label_selection',
+          label: 'Label Selection',
+          desc: 'Label residues or atoms within a target.',
+          examples: ['Label residues in chain A', 'Label ligand'],
+        },
+      ],
     },
     {
-      key: 'color_all',
-      label: 'Color All',
-      desc: 'Color everything.',
-      examples: ['Color all green'],
+      title: 'Focus & Navigation',
+      functions: [
+        {
+          key: 'show_sequence_view',
+          label: 'Sequence View',
+          desc: 'Toggle PyMOL’s built-in sequence bar and switch between common display formats.',
+          examples: ['Show sequence', 'Show sequence as residue names', 'Hide sequence'],
+        },
+        {
+          key: 'zoom_selection',
+          label: 'Zoom Target',
+          desc: 'Center the camera on a target.',
+          examples: ['Zoom to ligand', 'Center on chain A'],
+        },
+        {
+          key: 'orient_selection',
+          label: 'Orient Target',
+          desc: 'Reorient the scene around a target.',
+          examples: ['Orient on chain B', 'Orient on ligand'],
+        },
+        {
+          key: 'rotate_view',
+          label: 'Rotate View',
+          desc: 'Rotate camera around an axis.',
+          examples: ['Rotate 90 around X', 'Rotate 30 around Z'],
+        },
+      ],
     },
     {
-      key: 'set_background',
-      label: 'Set Background',
-      desc: 'Set background color.',
-      examples: ['Set bg to black', 'Background white'],
-    },
-    {
-      key: 'rotate_view',
-      label: 'Rotate View',
-      desc: 'Rotate camera around an axis.',
-      examples: ['Rotate 90 around X', 'Rotate 30 around Z'],
-    },
-    {
-      key: 'snapshot',
-      label: 'Snapshot',
-      desc: 'Save a PNG snapshot.',
-      examples: ['Snapshot as figure.png'],
+      title: 'Analysis',
+      functions: [
+        {
+          key: 'measure_distance',
+          label: 'Measure Distance',
+          desc: 'Create a distance object between two targets.',
+          examples: ['Measure distance between ligand and residue ASP in chain B'],
+        },
+        {
+          key: 'show_contacts',
+          label: 'Show Polar Contacts',
+          desc: 'Display polar contact distances between two targets.',
+          examples: ['Show polar contacts between ligand and residue ASP in chain B'],
+        },
+        {
+          key: 'align_objects',
+          label: 'Align Objects',
+          desc: 'Align one named object to another.',
+          examples: ['Align object ligand_pose to object receptor'],
+        },
+        {
+          key: 'snapshot',
+          label: 'Snapshot',
+          desc: 'Save a PNG snapshot.',
+          examples: ['Snapshot as figure.png'],
+        },
+      ],
     },
   ];
 
@@ -404,45 +484,52 @@ const ToolBoxPanel: React.FC = () => {
       </div>
 
       <div className="p-2 space-y-2 overflow-auto">
-        {functions.map((f) => {
-          const isHover = hoverId === f.key;
-          const isOpen = open === f.key;
-          return (
-            <div
-              key={f.key}
-              onMouseEnter={() => setHoverId(f.key)}
-              onMouseLeave={() => setHoverId(null)}
-              className={`rounded-3xl px-3 py-2 cursor-pointer transition
-                ${isOpen ? 'bg-[#171717]' : isHover ? 'bg-[#1F1F1F]' : ''}`}
-              onClick={() => select(f.key)}
-            >
-              <div className="flex items-center justify-between">
-                <div className="truncate font-medium">{f.label}</div>
-                <div className="text-neutral-400">{isOpen ? '▴' : '▾'}</div>
-              </div>
-
-              {isOpen && (
-                <div className="mt-2 rounded-2xl border border-brand p-3 bg-[#1F1F1F]">
-                  <div className="mb-2 text-sm text-neutral-300">{f.desc}</div>
-                  <ul className="list-disc ml-5 space-y-1">
-                    {f.examples.map((ex) => (
-                      <li
-                        key={ex}
-                        className="hover:text-brand cursor-pointer"
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          apply(ex);
-                        }}
-                      >
-                        {ex}
-                      </li>
-                    ))}
-                  </ul>
-                </div>
-              )}
+        {sections.map((section) => (
+          <div key={section.title} className="space-y-2">
+            <div className="px-2 pt-2 text-[11px] uppercase tracking-wide text-neutral-500">
+              {section.title}
             </div>
-          );
-        })}
+            {section.functions.map((f) => {
+              const isHover = hoverId === f.key;
+              const isOpen = open === f.key;
+              return (
+                <div
+                  key={f.key}
+                  onMouseEnter={() => setHoverId(f.key)}
+                  onMouseLeave={() => setHoverId(null)}
+                  className={`rounded-3xl px-3 py-2 cursor-pointer transition
+                    ${isOpen ? 'bg-[#171717]' : isHover ? 'bg-[#1F1F1F]' : ''}`}
+                  onClick={() => select(f.key)}
+                >
+                  <div className="flex items-center justify-between">
+                    <div className="truncate font-medium">{f.label}</div>
+                    <div className="text-neutral-400">{isOpen ? '▴' : '▾'}</div>
+                  </div>
+
+                  {isOpen && (
+                    <div className="mt-2 rounded-2xl border border-brand p-3 bg-[#1F1F1F]">
+                      <div className="mb-2 text-sm text-neutral-300">{f.desc}</div>
+                      <ul className="list-disc ml-5 space-y-1">
+                        {f.examples.map((ex) => (
+                          <li
+                            key={ex}
+                            className="hover:text-brand cursor-pointer"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              apply(ex);
+                            }}
+                          >
+                            {ex}
+                          </li>
+                        ))}
+                      </ul>
+                    </div>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+        ))}
       </div>
     </div>
   );
@@ -454,7 +541,23 @@ const ToolBoxPanel: React.FC = () => {
 const HelpPanel: React.FC = () => (
   <div className="h-full flex flex-col bg-[#2A2A2A]">
     <SectionTitle>Help</SectionTitle>
-    <div className="p-4 space-y-2 text-sm">
+    <div className="p-4 space-y-3 text-sm">
+      <div className="rounded-xl bg-neutral-900 p-3 text-neutral-300">
+        One action per prompt. Supported targets include protein, ligand, water, metals, hydrogens,
+        chain, residue, object, current selection, and all atoms.
+      </div>
+      <div className="rounded-xl bg-neutral-900 p-3 text-neutral-300">
+        Supported representations: cartoon, sticks, surface, spheres, lines, mesh, and dots.
+      </div>
+      <div className="rounded-xl bg-neutral-900 p-3 text-neutral-300">
+        The current PyMOL selection appears as a tag above the prompt box. Click it to insert a reference like
+        <span className="mx-1 rounded bg-black/40 px-1 py-0.5 text-brand">@A:ALA21</span>
+        into your prompt.
+      </div>
+      <div className="rounded-xl bg-neutral-900 p-3 text-neutral-300">
+        Built-in sequence view is available through prompts like <span className="text-neutral-100">Show sequence</span> or
+        <span className="text-neutral-100"> Show sequence as residue names</span>.
+      </div>
       <a
         className="block px-3 py-2 rounded-xl hover:bg-[#1F1F1F]"
         href="https://github.com/varunsharm16/pymol_ai_assistant"

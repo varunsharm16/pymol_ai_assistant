@@ -1,5 +1,5 @@
 """
-PyMOL AI Assistant — Bridge Server v0.1.0-alpha
+PyMOL AI Assistant — Bridge Server v0.1.1-alpha
 ================================================
 FastAPI server bridging the Electron UI and PyMOL plugin via WebSocket.
 Runs on http://127.0.0.1:5179.
@@ -38,7 +38,7 @@ log = logging.getLogger("pymol_bridge")
 # App
 # ---------------------------------------------------------------------------
 _start_time = time.time()
-__version__ = "0.1.0-alpha"
+__version__ = "0.1.1-alpha"
 
 app = FastAPI(title="PyMOL Bridge", version=__version__)
 
@@ -70,6 +70,7 @@ clients: Set[WebSocket] = set()
 pending: Dict[str, asyncio.Future] = {}
 # session data responses keyed by message id
 session_data: Dict[str, asyncio.Future] = {}
+selection_data: Dict[str, asyncio.Future] = {}
 client_last_seen: Dict[WebSocket, float] = {}
 
 STALE_CLIENT_SECONDS = 30.0
@@ -81,6 +82,7 @@ COMMAND_TIMEOUTS = {
     "get_session": 60.0,
     "set_session": 45.0,
     "clear_workspace": 15.0,
+    "get_selection_info": 5.0,
 }
 
 # ---------------------------------------------------------------------------
@@ -163,6 +165,13 @@ async def bridge_ws(ws: WebSocket):
                     mid = data.get("id")
                     if mid and mid in session_data:
                         fut = session_data.pop(mid)
+                        if not fut.done():
+                            fut.set_result(data)
+                    continue
+                if data.get("type") == "selection_data":
+                    mid = data.get("id")
+                    if mid and mid in selection_data:
+                        fut = selection_data.pop(mid)
                         if not fut.done():
                             fut.set_result(data)
                     continue
@@ -270,6 +279,45 @@ async def _broadcast_and_wait_session(
         return None, {"ok": False, "error": "Session capture timeout"}, 504
 
 
+async def _broadcast_and_wait_selection(payload: dict, timeout: float = 5.0):
+    if not _has_live_clients():
+        return None, {"ok": False, "error": "No PyMOL plugin connected"}, 503
+
+    mid = str(uuid.uuid4())
+    payload = dict(payload)
+    payload["id"] = mid
+
+    loop = asyncio.get_event_loop()
+    ack_fut = loop.create_future()
+    data_fut = loop.create_future()
+    pending[mid] = ack_fut
+    selection_data[mid] = data_fut
+
+    text = json.dumps(payload)
+    for ws in list(clients):
+        try:
+            await ws.send_text(text)
+        except Exception:
+            clients.discard(ws)
+            client_last_seen.pop(ws, None)
+
+    try:
+        started = time.time()
+        ack = await asyncio.wait_for(ack_fut, timeout=timeout)
+        if isinstance(ack, dict) and ack.get("ok") is not True:
+            err = ack.get("error") or "Execution failed"
+            return None, {"ok": False, "error": err}, 500
+
+        elapsed = max(0.0, time.time() - started)
+        remaining = max(0.1, timeout - elapsed)
+        data = await asyncio.wait_for(data_fut, timeout=remaining)
+        return data, {"ok": True}, 200
+    except asyncio.TimeoutError:
+        pending.pop(mid, None)
+        selection_data.pop(mid, None)
+        return None, {"ok": False, "error": "Selection info timeout"}, 504
+
+
 # ---------------------------------------------------------------------------
 # Health
 # ---------------------------------------------------------------------------
@@ -283,6 +331,17 @@ async def health_check():
         "plugin_connected": _has_live_clients(),
         "uptime_seconds": round(time.time() - _start_time, 1),
     }
+
+
+@app.get("/selection/current")
+async def current_selection():
+    data, result, code = await _broadcast_and_wait_selection(
+        {"name": "get_selection_info", "arguments": {}},
+        timeout=_timeout_for_command("get_selection_info"),
+    )
+    if code != 200:
+        return JSONResponse(result, status_code=code)
+    return {"ok": True, "selection": (data or {}).get("selection")}
 
 
 # ---------------------------------------------------------------------------

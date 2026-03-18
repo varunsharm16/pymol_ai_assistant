@@ -34,6 +34,14 @@ export type MoleculeInfo = {
   name?: string;
 };
 
+export type CurrentSelectionTag = {
+  label: string;
+  description: string;
+  count: number;
+  source: string;
+  target: Record<string, any>;
+};
+
 type Right =
   | 'none'
   | 'projects'
@@ -59,6 +67,7 @@ type State = {
   showApiKeyModal: boolean;
   healthChecks: HealthCheck[];
   recentProjects: RecentProject[];
+  currentSelection: CurrentSelectionTag | null;
 
   pendingRenameId?: string | null;
   switchingProject: boolean;
@@ -98,6 +107,7 @@ type State = {
   }) => string;
   setSwitchingProject: (value: boolean) => void;
   resetWorkspace: (name?: string) => string;
+  setCurrentSelection: (selection: CurrentSelectionTag | null) => void;
 };
 
 const uid = () => Math.random().toString(36).slice(2);
@@ -142,6 +152,7 @@ export const useStore = create<State>((set, get) => ({
   showApiKeyModal: false,
   healthChecks: [],
   recentProjects: [],
+  currentSelection: null,
 
   pendingRenameId: null,
   switchingProject: false,
@@ -236,6 +247,7 @@ export const useStore = create<State>((set, get) => ({
   setShowApiKeyModal: (v) => set({ showApiKeyModal: v }),
   setHealthChecks: (checks) => set({ healthChecks: checks }),
   setRecentProjects: (p) => set({ recentProjects: p }),
+  setCurrentSelection: (selection) => set({ currentSelection: selection }),
   setProjectSession: (projectId, data) =>
     set((s) => ({
       projectSessions: { ...s.projectSessions, [projectId]: data },
@@ -300,6 +312,7 @@ export const useStore = create<State>((set, get) => ({
       projectSessionDirty: workspace.projectSessionDirty,
       pendingRenameId: null,
       switchingProject: false,
+      currentSelection: null,
       draft: '',
       ui: { ...s.ui, rightPanel: 'none' },
     }));
