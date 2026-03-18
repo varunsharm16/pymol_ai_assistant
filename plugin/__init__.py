@@ -403,6 +403,7 @@ def color_by_element(target: dict):
 
 def set_transparency(target: dict, value: float, representation: str = "surface"):
     selection = _selection_from_target(target)
+    cmd.show(representation, selection)
     setting_name = {
         "surface": "transparency",
         "sticks": "stick_transparency",

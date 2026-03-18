@@ -8,6 +8,7 @@ import { useStore } from './store';
 import { Button } from './components/Button';
 import { Plus, Settings, Activity, Atom } from 'lucide-react';
 import ApiKeyModal from './components/ApiKeyModal';
+import OnboardingModal from './components/OnboardingModal';
 import { checkApiKey, getCurrentSelection } from './lib/bridge';
 import {
   createBlankProjectFlow,
@@ -130,6 +131,9 @@ const App: React.FC = () => {
   const setShowApiKeyModal = useStore((s) => s.setShowApiKeyModal);
   const setApiKeyConfigured = useStore((s) => s.setApiKeyConfigured);
   const setCurrentSelection = useStore((s) => s.setCurrentSelection);
+  const forceRightPanel = useStore((s) => s.forceRightPanel);
+  const [showOnboarding, setShowOnboarding] = React.useState(false);
+  const onboardingKey = 'pymol_ai_assistant_onboarding_complete';
 
   // Check API key on mount
   React.useEffect(() => {
@@ -151,6 +155,16 @@ const App: React.FC = () => {
         });
       }
     });
+  }, []);
+
+  React.useEffect(() => {
+    try {
+      if (window.localStorage.getItem(onboardingKey) !== 'true') {
+        setShowOnboarding(true);
+      }
+    } catch {
+      setShowOnboarding(true);
+    }
   }, []);
 
   React.useEffect(() => {
@@ -196,6 +210,18 @@ const App: React.FC = () => {
       <ApiKeyModal
         open={showApiKeyModal}
         onClose={() => setShowApiKeyModal(false)}
+      />
+      <OnboardingModal
+        open={showOnboarding}
+        onComplete={() => {
+          try {
+            window.localStorage.setItem(onboardingKey, 'true');
+          } catch {
+            // ignore storage failures and just close the modal
+          }
+          setShowOnboarding(false);
+          forceRightPanel('healthcheck');
+        }}
       />
     </div>
   );

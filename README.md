@@ -1,118 +1,235 @@
-# PyMOL AI Assistant 🧬🤖
+# PyMOL AI Assistant
 
-Control PyMOL using natural language. Just describe what you want in plain English—no need to memorize complex commands.
+Desktop control layer for PyMOL that lets users drive common molecular-visualization actions with plain English.
 
-![License](https://img.shields.io/badge/license-MIT-green)
-![Version](https://img.shields.io/badge/version-0.1.1--alpha-blue)
+Current version: `0.1.1-alpha`
 
----
+## Fast Install (macOS)
 
-## Quick Start
+Recommended for macOS users:
 
 ```bash
-# 1. Clone
-git clone https://github.com/varunsharm16/pymol_ai_assistant.git
-cd pymol_ai_assistant
-
-# 2. Install (macOS/Linux)
-./install.sh
-
-# 3. Open PyMOL and type:
-ai
+/bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/varunsharm16/pymol_ai_assistant/main/bootstrap-macos.sh)"
 ```
 
-That's it. The bridge server, desktop UI, and plugin all start automatically.
+This bootstrap script:
 
-> 💡 First time? The app will prompt you to enter your OpenAI API key on launch.
+- installs Homebrew if needed
+- installs missing Git, Python, Node.js, and npm via Homebrew
+- checks that PyMOL is already installed
+- clones or updates the repo into `~/pymol_ai_assistant`
+- runs the normal project installer
 
----
+It does **not** install PyMOL.
 
-## Why This Exists
+## What It Is
 
-Learning molecular visualization tools like PyMOL can be intimidating. The command syntax is powerful but has a steep learning curve, especially for:
+PyMOL AI Assistant is a three-part local app:
 
-- **Students** just starting in structural biology or biochemistry
-- **Researchers** who occasionally need to visualize proteins but don't use PyMOL daily
-- **Educators** who want to focus on teaching concepts, not software commands
+- A PyMOL plugin that registers the `ai` command and executes PyMOL actions
+- A local FastAPI bridge on `127.0.0.1:5179`
+- An Electron + React desktop UI for prompting, projects, molecules, notes, status checks, and settings
 
-Instead of learning commands like `cmd.color("magenta", "resn CYS and chain A")`, you simply type:
+The intended flow is:
 
-> "Color the cysteines in chain A magenta"
+1. Install the repo locally
+2. Open PyMOL
+3. Type `ai`
+4. Use the desktop UI to work with PyMOL
 
-The AI interprets your intent and executes the correct PyMOL command.
+The system is still alpha software. The best results come from short, single-action prompts.
 
-## Features
+## What It Can Do
 
-- 🗣️ **Natural language commands** — Describe actions in plain English
-- 🖥️ **Desktop app** — Persistent UI with command history and projects
-- 🎨 **Visualization controls** — Show/hide, isolate, recolor, label, and style common structural targets
-- 📸 **Screenshots** — Save publication-quality snapshots
-- 🔄 **View manipulation** — Rotate and orient your molecule
-- 🧹 **Cleanup tools** — Remove waters, metals, hydrogens, or isolate the ligand/protein
-- 📏 **Analysis helpers** — Measure distances, show polar contacts, align named objects
-- 🧪 **PDB fetch & import** — Load molecules by PDB ID or local file
-- 💾 **Project save/load** — Save your session and command history as `.pymolai` files
-- ✅ **Health check** — Built-in system diagnostic to verify everything works
+Current supported capabilities include:
 
-## Supported Commands
+- Fetch a structure by PDB ID
+- Import local structure files
+- Show and hide common representations
+- Color residues, chains, ligands, proteins, or everything
+- Color by chain and by element
+- Remove waters, metals, or hydrogens
+- Isolate a target
+- Label residues or atoms
+- Rotate, zoom, orient, and set the background
+- Set representation transparency
+- Measure distances
+- Show polar contacts
+- Align named objects
+- Show PyMOL’s built-in sequence view
+- Save snapshots
+- Save and reopen `.pymolai` project files
 
-| Action | Example Prompt |
-|--------|----------------|
-| Cleanup | "Remove waters" / "Remove metals" |
-| Styling | "Show ligand as sticks" / "Set surface transparency to 0.4 on protein" |
-| Coloring | "Color protein by chain" / "Color ligand by element" |
-| Labels | "Label residues in chain A" |
-| Navigation | "Zoom to ligand" / "Orient on chain B" |
-| Analysis | "Measure distance between ligand and residue ASP in chain B" |
-| Contacts & alignment | "Show polar contacts between ligand and residue ASP in chain B" / "Align object ligand_pose to object receptor" |
-| Legacy basics | "Color all cysteines magenta" / "Set background to white" / "Rotate 45 degrees around the Y axis" |
+The UI also exposes:
+
+- Per-project prompt logs
+- Per-project notes
+- Recent projects
+- Health checks
+- First-run onboarding
+- Current-selection tags such as `@A:ALA21` for more precise prompts
+
+## Example Prompts
+
+These are representative prompts that the current parser and NL fallback are designed around:
+
+- `Remove waters`
+- `Remove metals`
+- `Show ligand as sticks`
+- `Show the cartoon representation of the molecule`
+- `Set surface transparency to 0.4 on protein`
+- `Color protein grey`
+- `Color all leucine residues orange`
+- `Colour serine (SER) residues in chain A #FF00FF`
+- `Color all chains grey`
+- `Label residues in chain A`
+- `Zoom to ligand`
+- `Orient on chain B`
+- `Measure distance between ligand and residue ASP in chain B`
+- `Measure distance between selected`
+- `Show polar contacts between ligand and residue ASP in chain B`
+- `Align object ligand_pose to object receptor`
+- `Show sequence`
+- `Show sequence as residue names`
+- `Hide sequence`
+- `Snapshot as figure.png`
 
 ## Architecture
 
-```
-┌──────────────────┐      ┌──────────────┐      ┌─────────────┐
-│  Electron UI     │─────▶│   Bridge     │─────▶│   PyMOL     │
-│  (Desktop App)   │ HTTP │  (FastAPI)   │  WS  │  (Plugin)   │
-└──────────────────┘      └──────────────┘      └─────────────┘
-         │                       │                     │
-         │                       │                     ▼
-         │                       │              ┌─────────────┐
-         └───────────────────────┴─────────────▶│   OpenAI    │
-                                                │   GPT API   │
-                                                └─────────────┘
+```text
+Electron UI  <-->  FastAPI bridge  <-->  PyMOL plugin
+                               \
+                                \--> OpenAI API
 ```
 
-## Project Structure
+Key code locations:
 
-```
-pymol_ai_assistant/
-├── plugin/                     # PyMOL plugin
-│   ├── __init__.py             #   Unified launcher, WS client, command executor
-│   └── command_model.py        #   Selection compilation + command normalization
-├── pymol-bridge/               # FastAPI WebSocket bridge server
-│   ├── main.py                 #   REST API + WebSocket relay
-│   └── requirements.txt
-├── pymol-ai-electron-ui/       # Desktop app (Electron + React)
-│   ├── electron/               #   Main process + preload
-│   ├── src/ui/                 #   React components + store
-│   └── package.json
-├── tests/                      # pytest test suite
-├── install.sh                  # macOS/Linux installer
-├── install.bat                 # Windows installer
-├── version.py                  # Version: 0.1.1-alpha
-└── CHANGELOG.md
+- [`plugin/__init__.py`](plugin/__init__.py)
+- [`plugin/command_model.py`](plugin/command_model.py)
+- [`pymol-bridge/main.py`](pymol-bridge/main.py)
+- [`pymol-ai-electron-ui/src/ui/App.tsx`](pymol-ai-electron-ui/src/ui/App.tsx)
+
+## Prerequisites
+
+For installation, the practical prerequisites are:
+
+- PyMOL
+- Python `3.8+`, unless the macOS bootstrap installs it for you
+- Node.js `18+`, unless the macOS bootstrap installs it for you
+- npm, unless the macOS bootstrap installs it for you
+- Git, if installing via `git clone` manually
+- An OpenAI API key
+
+If Git is not installed:
+
+- the macOS bootstrap can install it automatically
+- or the user can download the repository as a ZIP and extract it manually
+
+## Quick Setup Guides
+
+If the installer fails immediately on a fresh machine, it is usually because one of these tools is missing.
+
+### Git
+
+Git is only required if you are cloning the repo with `git clone`.
+
+Check whether it is installed:
+
+```bash
+git --version
 ```
 
----
+If that fails:
+
+- macOS:
+  - install Xcode Command Line Tools:
+    ```bash
+    xcode-select --install
+    ```
+  - or install Git from https://git-scm.com/downloads
+- Windows:
+  - install Git for Windows from https://git-scm.com/download/win
+- Alternative:
+  - download the repository as a ZIP from GitHub and extract it manually
+
+### Python 3.8+
+
+Check whether Python is installed:
+
+```bash
+python3 --version
+```
+
+On Windows, also try:
+
+```bat
+python --version
+```
+
+If Python is missing:
+
+- macOS:
+  - install from https://www.python.org/downloads/
+  - or install with Homebrew:
+    ```bash
+    brew install python
+    ```
+- Windows:
+  - install from https://www.python.org/downloads/windows/
+  - during installation, enable `Add Python to PATH`
+
+After install, reopen the terminal and verify:
+
+```bash
+python3 --version
+```
+
+### Node.js 18+
+
+Check whether Node.js is installed:
+
+```bash
+node --version
+npm --version
+```
+
+If Node.js is missing:
+
+- macOS:
+  - install from https://nodejs.org/
+  - or install with Homebrew:
+    ```bash
+    brew install node
+    ```
+- Windows:
+  - install from https://nodejs.org/
+  - the standard installer includes npm
+
+After install, reopen the terminal and verify:
+
+```bash
+node --version
+npm --version
+```
+
+### PyMOL
+
+Make sure PyMOL itself is installed before running the installer.
+
+- Open-source build and general info: https://pymol.org/
+- Schrödinger build: follow your licensed installation path
+
+After installation, verify that PyMOL launches normally before trying to install this assistant.
 
 ## Installation
 
-### Prerequisites
+### macOS (recommended)
 
-- [PyMOL](https://pymol.org/) (open-source or licensed version)
-- [Node.js](https://nodejs.org/) v18+ (for the desktop UI)
-- Python 3.8+
-- An [OpenAI API key](https://platform.openai.com/api-keys)
+```bash
+/bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/varunsharm16/pymol_ai_assistant/main/bootstrap-macos.sh)"
+```
+
+Use this if you want the script to handle missing Git / Python / Node for you.
 
 ### macOS / Linux
 
@@ -122,142 +239,257 @@ cd pymol_ai_assistant
 ./install.sh
 ```
 
-The installer will:
-1. Create a Python venv and install bridge dependencies
-2. Run `npm install` for the Electron UI
-3. Link the plugin to PyMOL's startup directory
-4. Install `websocket-client` and `openai` in PyMOL's Python (if detected)
-
 ### Windows
 
-```cmd
+```bat
 git clone https://github.com/varunsharm16/pymol_ai_assistant.git
 cd pymol_ai_assistant
 install.bat
 ```
 
-The installer will:
-1. Create a Python venv and install bridge dependencies
-2. Run `npm install` for the Electron UI
-3. Copy the plugin to `%APPDATA%\PyMOL\Startup\`
+### What the installer does
 
-### After Installation
+The installer currently:
+
+1. Creates `pymol-bridge/.venv`
+2. Installs the bridge dependencies
+3. Installs the Electron UI dependencies
+4. Builds the Electron renderer and main process
+5. Installs the PyMOL plugin under `~/.pymol/Plugins` or the Windows equivalent
+6. Writes a PyMOL startup loader so the `ai` command exists automatically on launch
+7. Stores `project_root`, `node_path`, and `npm_path` in `~/.pymol/config.json`
+8. Tries to install `websocket-client` and `openai` into PyMOL’s Python when possible
+
+If the installer stops during prerequisite checks, install the missing dependency first using the quick guides above, then rerun the installer.
+
+### What the macOS bootstrap does
+
+The bootstrap:
+
+1. Verifies macOS
+2. Installs Homebrew if needed
+3. Installs missing Git / Python / Node.js / npm if needed
+4. Verifies PyMOL is already installed
+5. Clones or updates the repo in `~/pymol_ai_assistant`
+6. Runs `./install.sh`
+
+## First Launch
+
+After installation:
 
 1. Open PyMOL
-2. Type `ai` in the PyMOL command line
-3. The Electron UI will open — enter your API key in Settings on first launch
-4. Start typing natural language commands!
+2. Type `ai`
+3. The Electron UI should launch
+4. On first launch, the app shows onboarding and then routes the user to `Status`
+5. Run the system check
+6. Enter the OpenAI API key in `Settings` if prompted
 
----
+If `ai` is not recognized, the installation is incomplete. Re-run the installer first.
 
-## Usage
+## How to Use It
 
-### Load a Molecule
+### Prompting
 
-**From PDB:**
-1. Click "Molecules" in the toolbar
-2. Enter a PDB ID (e.g., `1CRN`)
-3. Click "Preview" for metadata, then "Load in PyMOL"
+Use one action per prompt.
 
-**From File:**
-1. Click "Molecules" → "Import File" tab
-2. Choose a `.pdb`, `.cif`, `.mol2`, or `.sdf` file
+Good:
 
-### Send Commands
+- `Show protein as cartoon`
+- `Color chain A red`
+- `Zoom to ligand`
 
-Type in the prompt bar: `"Color all cysteines yellow"` → Watch it happen in PyMOL! ✨
+Bad:
 
-### Save/Load Projects
+- `Fetch 1CRN and color it blue and rotate 45 degrees`
 
-- Click "Projects" → "Save" to export your session as a `.pymolai` file
-- Click "Open" to restore a previous session with all molecule state and command history
+The parser is intentionally strongest on short action-oriented phrasing. The Quick Actions list in the UI is there to steer users toward prompts the parser already understands well.
 
-### System Check
+### Current-selection tags
 
-Click "Status" in the toolbar to run a 5-point health check:
-- ✅ Bridge server reachable
-- ✅ PyMOL plugin connected
-- ✅ API key valid
-- ✅ Node.js ≥ 18
-- ✅ Python ≥ 3.8
+When PyMOL has a current selection or picked residue/atom, the prompt bar can show a tag such as `@A:ALA21`.
 
----
+That tag can be inserted into prompts:
 
-## Cost
+- `Color @A:ALA21 red`
 
-This uses OpenAI's GPT-3.5-turbo API. Each command costs approximately **$0.001–$0.002** (less than a penny). A typical session of 50 commands costs about $0.05–$0.10.
+### Molecules
 
----
+Use the `Molecules` panel to:
 
-## Security
+- Preview a PDB entry before loading
+- Fetch by PDB ID
+- Import a local file
 
-- ✅ API key stored locally in `~/.pymol/config.json` with restricted permissions
-- ✅ Bridge runs on localhost only (127.0.0.1)
-- ✅ No credentials in source code or git history
-- ✅ API key entered through the UI — no manual file creation needed
+### Projects
 
----
+Use the `Projects` panel to:
+
+- Create a blank project
+- Save a `.pymolai` project file
+- Reopen a saved project
+- Switch projects
+- Delete projects
+
+### Status
+
+Use `Status` to verify:
+
+- Bridge server reachable
+- PyMOL plugin connected
+- API key valid
+- Node.js version
+- Python version
+
+## Configuration
+
+The app stores local configuration in:
+
+- `~/.pymol/config.json`
+
+Current keys include:
+
+- `project_root`
+- `node_path`
+- `npm_path`
+- `openai_api_key`
+- optional `openai_model`
+
+If `openai_model` is not set, the plugin currently defaults to `gpt-5.4-mini` for NL fallback.
+
+## Limitations
+
+Current known limitations:
+
+- This is alpha software
+- Prompt quality is best with short, explicit, single-action requests
+- Some actions still depend on PyMOL object/selection state, so a valid prompt can still fail if the target does not exist in the current scene
+- Project switching is improved but still not production-grade
+- The UI is local-first and assumes the bridge and PyMOL plugin are both running on the same machine
 
 ## Troubleshooting
 
-### 1. Bridge won't start
-- Make sure `pymol-bridge/.venv` exists. Re-run `./install.sh` if needed.
-- Check that port 5179 isn't in use: `lsof -i :5179`
+### `ai` is not defined in PyMOL
 
-### 2. Electron UI doesn't open
-- Ensure `node_modules` exists in `pymol-ai-electron-ui/`. Run `npm install` if missing.
-- Requires Node.js 18+. Check with `node --version`.
+Re-run the installer. The `ai` command only exists if the plugin startup loader was installed correctly.
 
-### 3. PyMOL says "Unknown command: ai"
-- The plugin isn't installed. Re-run the installer or manually:
-  ```
-  run /path/to/pymol_ai_assistant/plugin/__init__.py
-  ```
+If needed, check for these paths:
 
-### 4. Commands fail with "No PyMOL plugin connected"
-- Make sure you typed `ai` in PyMOL (not just opened the Electron UI separately).
-- Check the System Check panel for diagnostics.
+- `~/.pymol/Plugins/pymol_ai_assistant`
+- `~/.pymol/startup/pymol_ai_assistant_startup.py`
 
-### 5. API key errors
-- Go to Settings in the Electron UI and re-enter your key.
-- Make sure your OpenAI account has API credits.
-- Test at https://platform.openai.com/api-keys
+On some macOS installs, the startup directory may instead be:
 
----
+- `~/Library/Application Support/PyMOL/Startup`
 
-## Contributing
+### macOS bootstrap says Homebrew failed
 
-Contributions are welcome! Please follow these guidelines:
+- install Homebrew manually from https://brew.sh
+- then rerun the bootstrap command
 
-### Branch Naming
-- Feature branches: `feature/description`
-- Bug fixes: `fix/description`
-- Release branches: `release/x.y.z`
+### macOS bootstrap says PyMOL was not found
 
-### Pull Requests
-1. Fork the repository
-2. Create your feature branch
-3. Make your changes with clear commit messages
-4. Run tests: `cd tests && pytest -v`
-5. Submit a PR against `main`
+- install PyMOL first
+- make sure it exists in `/Applications/PyMOL.app` or `~/Applications/PyMOL.app`
+- rerun the bootstrap
 
-### Running Tests
-```bash
-# Python bridge tests
-pip install pytest httpx
-pytest tests/ -v
+### macOS bootstrap says the repo directory already exists but is not a git repo
 
-# Electron build check
-cd pymol-ai-electron-ui
-npm run build
+- move or remove `~/pymol_ai_assistant`
+- rerun the bootstrap
+
+### Electron UI does not open
+
+Check:
+
+- `pymol-ai-electron-ui/node_modules`
+- `pymol-ai-electron-ui/dist/index.html`
+- `~/.pymol/electron-ui.log`
+
+Then rerun the installer.
+
+### Bridge is unreachable
+
+Re-run the installer so that:
+
+- `pymol-bridge/.venv` exists
+- the bridge dependencies are installed
+
+You can also inspect `Status` in the UI.
+
+### Prompts time out or fail often
+
+Common causes:
+
+- The plugin is not connected
+- The target does not exist in the current scene
+- The prompt is too broad or contains multiple actions
+
+Use shorter prompts and prefer the patterns from Quick Actions.
+
+### Save/load problems
+
+Projects are saved as `.pymolai` archives that contain:
+
+- `metadata.json`
+- `session.pse`
+
+If save/load breaks, first confirm the prompt log and PyMOL session are both present in the project file flow.
+
+## Development
+
+### Repository layout
+
+```text
+plugin/
+  __init__.py
+  command_model.py
+
+pymol-bridge/
+  main.py
+  requirements.txt
+
+pymol-ai-electron-ui/
+  electron/
+  src/ui/
+  package.json
+
+tests/
+install.sh
+install.bat
+version.py
+CHANGELOG.md
 ```
 
----
+### Running checks
+
+Bridge tests:
+
+```bash
+pymol-bridge/.venv/bin/pytest -q tests
+```
+
+Plugin compile check:
+
+```bash
+python3 -m py_compile plugin/__init__.py plugin/command_model.py pymol-bridge/main.py
+```
+
+Frontend parser tests:
+
+```bash
+cd pymol-ai-electron-ui
+npm run test:parser
+```
+
+Frontend typecheck and build:
+
+```bash
+cd pymol-ai-electron-ui
+./node_modules/.bin/tsc --noEmit
+npm run build
+npm run build:electron
+```
 
 ## License
 
-MIT License — feel free to use, modify, and share.
-
----
-
-*Made to help students and researchers focus on science, not syntax.* 🔬
+MIT
