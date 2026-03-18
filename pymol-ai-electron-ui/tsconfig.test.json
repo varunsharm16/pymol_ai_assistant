@@ -1,0 +1,11 @@
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "module": "NodeNext",
+    "moduleResolution": "NodeNext",
+    "outDir": ".tmp-tests",
+    "rootDir": "src",
+    "noEmit": false
+  },
+  "include": ["src/ui/lib/parse.ts", "src/ui/lib/parse.node.test.ts"]
+}

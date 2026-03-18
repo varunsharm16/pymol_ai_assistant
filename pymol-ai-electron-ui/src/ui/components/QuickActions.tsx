@@ -8,6 +8,18 @@ import { Button } from './Button';
  *  - The first 6 in DEFAULTS are what appear on launch.
  */
 const PROMPTS: string[] = [
+  // --- Cleanup & selection ---
+  'Remove waters',
+  'Remove metals',
+  'Remove hydrogens',
+  'Isolate ligand',
+  'Hide everything except ligand',
+  'Zoom to ligand',
+  'Orient on chain B',
+  'Show sequence',
+  'Show sequence as residue names',
+  'Hide sequence',
+
   // --- Colors / selections ---
   'Color ALA green',
   'Colour CYS in chain B yellow',
@@ -49,11 +61,24 @@ const PROMPTS: string[] = [
   'Show the cartoon representation of the molecule',
   'Show ribbon',
   'Show surface representation of the protein',
+  'Show ligand as sticks',
+  'Show protein as cartoon',
   'Show sticks for all atoms',
   'Show spheres representation',
   'Show mesh representation',
   'Show dots on the surface',
   'Show lines',
+
+  // --- Transparency / labels ---
+  'Set surface transparency to 0.4 on protein',
+  'Label residues in chain A',
+  'Label ligand',
+
+  // --- Analysis ---
+  'Measure distance between ligand and residue ASP in chain B',
+  'Show polar contacts between ligand and residue ASP in chain B',
+  'Align object ligand_pose to object receptor',
+  'Color @A:ALA21 red',
 
   // --- Snapshot / export ---
   'Save a PNG snapshot named test.png',
@@ -72,19 +97,20 @@ const PROMPTS: string[] = [
 
   // --- Misc useful ---
   'Center on chain A',
-  'Show ligand as sticks',
-  'Show protein as cartoon',
   'Color protein grey',
+  'Color protein by chain',
+  'Color ligand by element',
 ];
 
 /** These 6 appear by default on launch (and when search is empty) */
 const DEFAULTS = [
-  'Set bg to white',
-  'Color ALA green',
-  'Rotate 45° around X',
-  'Show mesh representation',
-  'Snapshot my_molecule.png',
-  'Color chain A red',
+  'Remove waters',
+  'Show ligand as sticks',
+  'Set surface transparency to 0.4 on protein',
+  'Label residues in chain A',
+  'Show sequence as residue names',
+  'Measure distance between ligand and residue ASP in chain B',
+  'Color protein by chain',
 ];
 
 /** Simple fuzzy scorer: tokens + prefix + substring. Higher is better. */

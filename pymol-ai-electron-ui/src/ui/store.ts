@@ -1,61 +1,162 @@
 import { create } from 'zustand';
 
-export type LogEntry = { id: string; ts: number; prompt: string; status: 'success'|'error'; message: string };
-export type Project = { id: string; name: string; createdAt: number; updatedAt: number };
-type Right = 'none'|'projects'|'notepad'|'toolbox'|'help'|'profile'|'upgrade';
-
-type Subscription = {
-  plan: string;
-  cycleStart: Date;
-  cycleEnd: Date;
-  promptsUsed: number;
-  promptsLimit: number;
+export type LogEntry = {
+  id: string;
+  ts: number;
+  prompt: string;
+  status: 'pending' | 'success' | 'error';
+  message: string;
 };
+
+export type Project = {
+  id: string;
+  name: string;
+  createdAt: number;
+  updatedAt: number;
+};
+
+export type RecentProject = {
+  name: string;
+  path: string;
+  saved_at: string;
+};
+
+export type HealthCheck = {
+  label: string;
+  status: 'pass' | 'fail' | 'pending' | 'idle';
+  message: string;
+  fix?: string;
+};
+
+export type MoleculeInfo = {
+  pdbId?: string;
+  filePath?: string;
+  name?: string;
+};
+
+export type CurrentSelectionTag = {
+  label: string;
+  description: string;
+  count: number;
+  source: string;
+  target: Record<string, any>;
+};
+
+type Right =
+  | 'none'
+  | 'projects'
+  | 'notepad'
+  | 'toolbox'
+  | 'help'
+  | 'settings'
+  | 'healthcheck'
+  | 'molecules';
 
 type State = {
   currentProjectId: string;
   projects: Project[];
   logs: Record<string, LogEntry[]>;
   notes: Record<string, string>;
-  draft: string; // <— shared prompt draft
+  projectMolecules: Record<string, MoleculeInfo>;
+  projectSessions: Record<string, string | null>;
+  projectSessionDirty: Record<string, boolean>;
+  draft: string;
   ui: { rightPanel: Right; quickActionsExpanded: boolean };
-  forceRightPanel: (p: Right)=>void;
-  setRightPanel: (p: Right)=>void;
-  toggleQuickActions: ()=>void;
-  setProjectName: (name:string)=>void;
-  createProject: (name:string)=>void;
-  addLog: (e: Omit<LogEntry,'id'|'ts'>)=>void;
-  setNotes: (md:string)=>void;
-  setDraft: (v:string)=>void;
-  pendingRenameId?: string | null;
-  setPendingRename: (id: string | null)=>void;
-  selectProject: (id: string)=>void;
-  renameProject: (id: string, name: string)=>void;
-  subscription: Subscription;
-  setSubscription: (s: Partial<Subscription>)=>void;
 
+  apiKeyConfigured: boolean;
+  showApiKeyModal: boolean;
+  healthChecks: HealthCheck[];
+  recentProjects: RecentProject[];
+  currentSelection: CurrentSelectionTag | null;
+
+  pendingRenameId?: string | null;
+  switchingProject: boolean;
+
+  forceRightPanel: (p: Right) => void;
+  setRightPanel: (p: Right) => void;
+  toggleQuickActions: () => void;
+  setProjectName: (name: string) => void;
+  createProject: (name: string) => string;
+  deleteProject: (id: string) => void;
+  addLog: (entry: Omit<LogEntry, 'id' | 'ts'>) => string;
+  addLogToProject: (projectId: string, entry: Omit<LogEntry, 'id' | 'ts'>) => string;
+  updateLog: (logId: string, updates: Partial<LogEntry>) => void;
+  updateLogEntry: (projectId: string, logId: string, updates: Partial<LogEntry>) => void;
+  clearProjectLogs: (projectId: string) => void;
+  setNotes: (md: string) => void;
+  setDraft: (v: string) => void;
+  setPendingRename: (id: string | null) => void;
+  selectProject: (id: string) => void;
+  renameProject: (id: string, name: string) => void;
+  setApiKeyConfigured: (v: boolean) => void;
+  setShowApiKeyModal: (v: boolean) => void;
+  setHealthChecks: (checks: HealthCheck[]) => void;
+  setRecentProjects: (p: RecentProject[]) => void;
+  setProjectSession: (projectId: string, data: string | null) => void;
+  setProjectSessionDirty: (projectId: string, dirty: boolean) => void;
+  setCurrentProjectSessionDirty: (dirty: boolean) => void;
+  setProjectMolecule: (projectId: string, molecule: MoleculeInfo) => void;
+  setCurrentProjectMolecule: (molecule: MoleculeInfo) => void;
+  hydrateProjectFromLoadedFile: (opts: {
+    id?: string;
+    name: string;
+    logs?: Array<Partial<LogEntry>>;
+    notes?: string;
+    molecule?: MoleculeInfo;
+    sessionData?: string | null;
+  }) => string;
+  setSwitchingProject: (value: boolean) => void;
+  resetWorkspace: (name?: string) => string;
+  setCurrentSelection: (selection: CurrentSelectionTag | null) => void;
 };
 
 const uid = () => Math.random().toString(36).slice(2);
-const initialProject: Project = { id: uid(), name: 'New Project', createdAt: Date.now(), updatedAt: Date.now() };
+
+function createProjectRecord(name = 'New Project'): Project {
+  return {
+    id: uid(),
+    name,
+    createdAt: Date.now(),
+    updatedAt: Date.now(),
+  };
+}
+
+function createWorkspaceState(name = 'New Project') {
+  const project = createProjectRecord(name);
+  return {
+    project,
+    currentProjectId: project.id,
+    projects: [project],
+    logs: { [project.id]: [] as LogEntry[] },
+    notes: { [project.id]: '' },
+    projectMolecules: { [project.id]: {} as MoleculeInfo },
+    projectSessions: { [project.id]: null as string | null },
+    projectSessionDirty: { [project.id]: false },
+  };
+}
+
+const initialWorkspace = createWorkspaceState();
 
 export const useStore = create<State>((set, get) => ({
-  currentProjectId: initialProject.id,
-  projects: [initialProject],
-  logs: { [initialProject.id]: [] },
-  notes: { [initialProject.id]: '' },
+  currentProjectId: initialWorkspace.currentProjectId,
+  projects: initialWorkspace.projects,
+  logs: initialWorkspace.logs,
+  notes: initialWorkspace.notes,
+  projectMolecules: initialWorkspace.projectMolecules,
+  projectSessions: initialWorkspace.projectSessions,
+  projectSessionDirty: initialWorkspace.projectSessionDirty,
   draft: '',
   ui: { rightPanel: 'none', quickActionsExpanded: false },
-  subscription: {
-    plan: 'PRO',
-    cycleStart: new Date(),
-    cycleEnd: new Date(Date.now() + 30 * 864e5),
-    promptsUsed: 0,
-    promptsLimit: 1000,
-  },
 
-  // rename/select helpers
+  apiKeyConfigured: false,
+  showApiKeyModal: false,
+  healthChecks: [],
+  recentProjects: [],
+  currentSelection: null,
+
   pendingRenameId: null,
+  switchingProject: false,
+
   setPendingRename: (id) => set({ pendingRenameId: id }),
   selectProject: (id) => set({ currentProjectId: id }),
   renameProject: (id, name) =>
@@ -65,91 +166,156 @@ export const useStore = create<State>((set, get) => ({
       ),
     })),
 
-  // other actions
   setRightPanel: (p) =>
     set((s) => ({
       ui: { ...s.ui, rightPanel: s.ui.rightPanel === p ? 'none' : p },
     })),
+  forceRightPanel: (p) =>
+    set((s) => ({ ui: { ...s.ui, rightPanel: p } })),
   toggleQuickActions: () =>
-    set((s) => ({ ui: { ...s.ui, quickActionsExpanded: !s.ui.quickActionsExpanded } })),
+    set((s) => ({
+      ui: { ...s.ui, quickActionsExpanded: !s.ui.quickActionsExpanded },
+    })),
   setProjectName: (name) =>
     set((s) => ({
       projects: s.projects.map((p) =>
-        p.id === s.currentProjectId ? { ...p, name, updatedAt: Date.now() } : p
+        p.id === s.currentProjectId
+          ? { ...p, name, updatedAt: Date.now() }
+          : p
       ),
     })),
-  createProject: (name) =>
-    set((s) => {
-      const p = { id: uid(), name, createdAt: Date.now(), updatedAt: Date.now() };
-      return {
-        projects: [p, ...s.projects],
-        currentProjectId: p.id,
-        logs: { ...s.logs, [p.id]: [] },
-        notes: { ...s.notes, [p.id]: '' },
-        pendingRenameId: p.id,
-      };
-    }),
-  addLog: (e) =>
-    set((s) => {
-      const id = s.currentProjectId;
-      const entry = { id: uid(), ts: Date.now(), ...e };
-      return { logs: { ...s.logs, [id]: [entry, ...(s.logs[id] || [])] } };
-    }),
-  setNotes: (md) => set((s) => ({ notes: { ...s.notes, [s.currentProjectId]: md } })),
-  setDraft: (v) => set({ draft: v }),
-  forceRightPanel: (p) => set((s) => ({ ui: { ...s.ui, rightPanel: p } })),
-  setSubscription: (s) =>
-    set((st) => ({ subscription: { ...st.subscription, ...s } })),
-
-}));
-
-// 2) PERSISTENCE BLOCK — this goes AFTER the store is created
-const STORAGE_KEY = 'pymol-ai-ui';
-
-try {
-  const saved = localStorage.getItem(STORAGE_KEY);
-  if (saved) {
-    const data = JSON.parse(saved);
-    const sub = data.subscription ?? {};
-    useStore.setState({
-      currentProjectId: data.currentProjectId ?? initialProject.id,
-      projects: Array.isArray(data.projects) ? data.projects : [initialProject],
-      logs: data.logs ?? { [initialProject.id]: [] },
-      notes: data.notes ?? { [initialProject.id]: '' },
-      subscription: {
-        plan: sub.plan ?? 'PRO',
-        cycleStart: sub.cycleStart ? new Date(sub.cycleStart) : new Date(),
-        cycleEnd: sub.cycleEnd ? new Date(sub.cycleEnd) : new Date(Date.now() + 30 * 864e5),
-        promptsUsed: typeof sub.promptsUsed === 'number' ? sub.promptsUsed : 0,
-        promptsLimit: typeof sub.promptsLimit === 'number' ? sub.promptsLimit : 1000,
+  createProject: (name) => {
+    const p = createProjectRecord(name);
+    set((s) => ({
+      projects: [p, ...s.projects],
+      logs: { ...s.logs, [p.id]: [] },
+      notes: { ...s.notes, [p.id]: '' },
+      projectMolecules: { ...s.projectMolecules, [p.id]: {} },
+      projectSessions: { ...s.projectSessions, [p.id]: null },
+      projectSessionDirty: { ...s.projectSessionDirty, [p.id]: false },
+      pendingRenameId: p.id,
+    }));
+    return p.id;
+  },
+  deleteProject: (id) =>
+    set((s) => ({
+      projects: s.projects.filter((p) => p.id !== id),
+      logs: Object.fromEntries(Object.entries(s.logs).filter(([key]) => key !== id)),
+      notes: Object.fromEntries(Object.entries(s.notes).filter(([key]) => key !== id)),
+      projectMolecules: Object.fromEntries(
+        Object.entries(s.projectMolecules).filter(([key]) => key !== id)
+      ),
+      projectSessions: Object.fromEntries(
+        Object.entries(s.projectSessions).filter(([key]) => key !== id)
+      ),
+      projectSessionDirty: Object.fromEntries(
+        Object.entries(s.projectSessionDirty).filter(([key]) => key !== id)
+      ),
+    })),
+  addLog: (entry) => get().addLogToProject(get().currentProjectId, entry),
+  addLogToProject: (projectId, entry) => {
+    const id = uid();
+    const logEntry = { id, ts: Date.now(), ...entry };
+    set((s) => ({
+      logs: {
+        ...s.logs,
+        [projectId]: [logEntry, ...(s.logs[projectId] || [])],
       },
-    });
-  }
-} catch {
-  // ignore parse errors
-}
+    }));
+    return id;
+  },
+  updateLog: (logId, updates) =>
+    get().updateLogEntry(get().currentProjectId, logId, updates),
+  updateLogEntry: (projectId, logId, updates) =>
+    set((s) => ({
+      logs: {
+        ...s.logs,
+        [projectId]: (s.logs[projectId] || []).map((entry) =>
+          entry.id === logId ? { ...entry, ...updates } : entry
+        ),
+      },
+    })),
+  clearProjectLogs: (projectId) =>
+    set((s) => ({
+      logs: { ...s.logs, [projectId]: [] },
+    })),
+  setNotes: (md) =>
+    set((s) => ({ notes: { ...s.notes, [s.currentProjectId]: md } })),
+  setDraft: (v) => set({ draft: v }),
 
-useStore.subscribe((state) => {
-  const toSave = {
-    currentProjectId: state.currentProjectId,
-    projects: state.projects,
-    logs: state.logs,
-    notes: state.notes,
-    subscription: state.subscription
-      ? {
-          ...state.subscription,
-          cycleStart:
-            state.subscription.cycleStart instanceof Date
-              ? state.subscription.cycleStart.toISOString()
-              : (state.subscription.cycleStart as any),
-          cycleEnd:
-            state.subscription.cycleEnd instanceof Date
-              ? state.subscription.cycleEnd.toISOString()
-              : (state.subscription.cycleEnd as any),
-        }
-      : undefined,
-  };
-  try {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(toSave));
-  } catch {}
-});
+  setApiKeyConfigured: (v) => set({ apiKeyConfigured: v }),
+  setShowApiKeyModal: (v) => set({ showApiKeyModal: v }),
+  setHealthChecks: (checks) => set({ healthChecks: checks }),
+  setRecentProjects: (p) => set({ recentProjects: p }),
+  setCurrentSelection: (selection) => set({ currentSelection: selection }),
+  setProjectSession: (projectId, data) =>
+    set((s) => ({
+      projectSessions: { ...s.projectSessions, [projectId]: data },
+      projectSessionDirty: { ...s.projectSessionDirty, [projectId]: false },
+    })),
+  setProjectSessionDirty: (projectId, dirty) =>
+    set((s) => ({
+      projectSessionDirty: { ...s.projectSessionDirty, [projectId]: dirty },
+    })),
+  setCurrentProjectSessionDirty: (dirty) => {
+    const projectId = get().currentProjectId;
+    get().setProjectSessionDirty(projectId, dirty);
+  },
+  setProjectMolecule: (projectId, molecule) =>
+    set((s) => ({
+      projectMolecules: { ...s.projectMolecules, [projectId]: molecule },
+    })),
+  setCurrentProjectMolecule: (molecule) => {
+    const projectId = get().currentProjectId;
+    get().setProjectMolecule(projectId, molecule);
+  },
+  hydrateProjectFromLoadedFile: ({ id, name, logs, notes, molecule, sessionData }) => {
+    const projectId = id || uid();
+    const project: Project = {
+      id: projectId,
+      name,
+      createdAt: Date.now(),
+      updatedAt: Date.now(),
+    };
+    set((s) => ({
+      projects: [project, ...s.projects.filter((p) => p.id !== projectId)],
+      logs: {
+        ...s.logs,
+        [projectId]: (logs || []).map((entry) => ({
+          id: uid(),
+          ts: typeof entry.ts === 'number' ? entry.ts : Date.now(),
+          prompt: entry.prompt || '',
+          status:
+            entry.status === 'success' || entry.status === 'error' || entry.status === 'pending'
+              ? entry.status
+              : 'success',
+          message: entry.message || '',
+        })),
+      },
+      notes: { ...s.notes, [projectId]: notes || '' },
+      projectMolecules: { ...s.projectMolecules, [projectId]: molecule || {} },
+      projectSessions: { ...s.projectSessions, [projectId]: sessionData || null },
+      projectSessionDirty: { ...s.projectSessionDirty, [projectId]: false },
+    }));
+    return projectId;
+  },
+  setSwitchingProject: (value) => set({ switchingProject: value }),
+  resetWorkspace: (name = 'New Project') => {
+    const workspace = createWorkspaceState(name);
+    set((s) => ({
+      currentProjectId: workspace.currentProjectId,
+      projects: workspace.projects,
+      logs: workspace.logs,
+      notes: workspace.notes,
+      projectMolecules: workspace.projectMolecules,
+      projectSessions: workspace.projectSessions,
+      projectSessionDirty: workspace.projectSessionDirty,
+      pendingRenameId: null,
+      switchingProject: false,
+      currentSelection: null,
+      draft: '',
+      ui: { ...s.ui, rightPanel: 'none' },
+    }));
+    return workspace.currentProjectId;
+  },
+}));

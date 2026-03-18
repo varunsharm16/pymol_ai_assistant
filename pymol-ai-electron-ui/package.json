@@ -1,6 +1,6 @@
 {
   "name": "pymol-ai-assistant-electron",
-  "version": "0.1.0",
+  "version": "0.1.1-alpha",
   "private": true,
   "type": "module",
   "main": "electron/main.cjs",
@@ -8,29 +8,30 @@
     "dev": "concurrently -k \"vite\" \"wait-on tcp:5173 && cross-env VITE_DEV=1 electron .\"",
     "build": "vite build",
     "build:electron": "esbuild electron/main.ts --bundle --platform=node --external:electron --outfile=electron/main.cjs && esbuild electron/preload.ts --bundle --platform=node --external:electron --outfile=electron/preload.cjs",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "test:parser": "rimraf .tmp-tests && tsc -p tsconfig.test.json && node --test .tmp-tests/ui/lib/*.test.js"
   },
   "dependencies": {
-    "lucide-react": "^0.539.0",
-    "react": "^18.2.0",
-    "react-dom": "^18.2.0",
-    "zustand": "^4.5.2"
+    "lucide-react": "0.539.0",
+    "react": "18.2.0",
+    "react-dom": "18.2.0",
+    "zustand": "4.5.2"
   },
   "devDependencies": {
-    "@types/node": "^24.3.0",
-    "@types/react": "^18.3.23",
-    "@types/react-dom": "^18.3.7",
-    "@vitejs/plugin-react": "^4.3.1",
-    "autoprefixer": "^10.4.19",
-    "concurrently": "^9.0.1",
-    "cross-env": "^7.0.3",
-    "electron": "^31.3.0",
-    "esbuild": "^0.23.0",
-    "postcss": "^8.4.38",
-    "rimraf": "^6.0.1",
-    "tailwindcss": "^3.4.10",
-    "typescript": "^5.9.2",
-    "vite": "^5.4.19",
-    "wait-on": "^7.2.0"
+    "@types/node": "24.3.0",
+    "@types/react": "18.3.23",
+    "@types/react-dom": "18.3.7",
+    "@vitejs/plugin-react": "4.3.1",
+    "autoprefixer": "10.4.19",
+    "concurrently": "9.0.1",
+    "cross-env": "7.0.3",
+    "electron": "31.3.0",
+    "esbuild": "0.23.0",
+    "postcss": "8.4.38",
+    "rimraf": "6.0.1",
+    "tailwindcss": "3.4.10",
+    "typescript": "5.9.2",
+    "vite": "5.4.19",
+    "wait-on": "7.2.0"
   }
 }

@@ -1,0 +1,508 @@
+export type SelectionSpec =
+  | { kind: 'all' }
+  | { kind: 'protein' }
+  | { kind: 'ligand' }
+  | { kind: 'water' }
+  | { kind: 'metals' }
+  | { kind: 'hydrogens' }
+  | { kind: 'current_selection' }
+  | { kind: 'chain'; chain: string; object?: string }
+  | { kind: 'residue'; residue: string; chain?: string; resi?: string; object?: string }
+  | { kind: 'atom'; atom: string; residue?: string; chain?: string; resi?: string; object?: string }
+  | { kind: 'object'; object: string };
+
+export type Representation =
+  | 'cartoon'
+  | 'sticks'
+  | 'surface'
+  | 'spheres'
+  | 'lines'
+  | 'mesh'
+  | 'dots';
+
+export type Spec = { name: string; arguments?: Record<string, any> };
+export type SelectionTagContext = { label: string; target: SelectionSpec };
+
+const RES_MAP: Record<string, string> = {
+  A: 'ALA',
+  C: 'CYS',
+  D: 'ASP',
+  E: 'GLU',
+  F: 'PHE',
+  G: 'GLY',
+  H: 'HIS',
+  I: 'ILE',
+  K: 'LYS',
+  L: 'LEU',
+  M: 'MET',
+  N: 'ASN',
+  P: 'PRO',
+  Q: 'GLN',
+  R: 'ARG',
+  S: 'SER',
+  T: 'THR',
+  V: 'VAL',
+  W: 'TRP',
+  Y: 'TYR',
+};
+
+const FULL_RESIDUE_NAMES: Record<string, string> = {
+  ALANINE: 'ALA',
+  CYSTEINE: 'CYS',
+  ASPARTATE: 'ASP',
+  ASPARTICACID: 'ASP',
+  GLUTAMATE: 'GLU',
+  GLUTAMICACID: 'GLU',
+  PHENYLALANINE: 'PHE',
+  GLYCINE: 'GLY',
+  HISTIDINE: 'HIS',
+  ISOLEUCINE: 'ILE',
+  LYSINE: 'LYS',
+  LEUCINE: 'LEU',
+  METHIONINE: 'MET',
+  ASPARAGINE: 'ASN',
+  PROLINE: 'PRO',
+  GLUTAMINE: 'GLN',
+  ARGININE: 'ARG',
+  SERINE: 'SER',
+  THREONINE: 'THR',
+  VALINE: 'VAL',
+  TRYPTOPHAN: 'TRP',
+  TYROSINE: 'TYR',
+};
+
+const REP_ALIASES: Record<string, Representation> = {
+  cartoon: 'cartoon',
+  ribbon: 'cartoon',
+  surface: 'surface',
+  stick: 'sticks',
+  sticks: 'sticks',
+  line: 'lines',
+  lines: 'lines',
+  sphere: 'spheres',
+  spheres: 'spheres',
+  mesh: 'mesh',
+  dot: 'dots',
+  dots: 'dots',
+};
+
+const SEQUENCE_FORMAT_ALIASES: Record<string, string> = {
+  'residue code': 'residue_codes',
+  'residue codes': 'residue_codes',
+  codes: 'residue_codes',
+  'residue name': 'residue_names',
+  'residue names': 'residue_names',
+  names: 'residue_names',
+  'atom name': 'atom_names',
+  'atom names': 'atom_names',
+  atoms: 'atom_names',
+  'chain identifier': 'chain_identifiers',
+  'chain identifiers': 'chain_identifiers',
+  chains: 'chain_identifiers',
+};
+
+function clean(text: string) {
+  return text
+    .trim()
+    .replace(/[.?!]+$/g, '')
+    .replace(/^the\s+/i, '');
+}
+
+function normalizeResidue(value: string) {
+  const paren = value.match(/\(([A-Za-z]{1,3})\)/);
+  if (paren) {
+    return normalizeResidue(paren[1]);
+  }
+  const letters = value.toUpperCase().replace(/[^A-Z]/g, '');
+  if (FULL_RESIDUE_NAMES[letters]) {
+    return FULL_RESIDUE_NAMES[letters];
+  }
+  if (letters.length === 1 && RES_MAP[letters]) {
+    return RES_MAP[letters];
+  }
+  return letters;
+}
+
+function parseRepresentation(value: string | undefined): Representation | null {
+  if (!value) return null;
+  return REP_ALIASES[clean(value).toLowerCase()] || null;
+}
+
+function parseTransparencyValue(value: string): number | null {
+  const raw = clean(value).replace(/%$/, '');
+  const numeric = Number(raw);
+  if (!Number.isFinite(numeric)) return null;
+  return numeric > 1 ? Math.max(0, Math.min(1, numeric / 100)) : Math.max(0, Math.min(1, numeric));
+}
+
+function parseSequenceFormat(value: string | undefined): string | null {
+  if (!value) return null;
+  return SEQUENCE_FORMAT_ALIASES[clean(value).toLowerCase()] || null;
+}
+
+function parseTarget(input: string, context?: SelectionTagContext | null): SelectionSpec | null {
+  const text = clean(input)
+    .replace(/^for\s+/i, '')
+    .replace(/^on\s+/i, '')
+    .replace(/^to\s+/i, '')
+    .replace(/^only\s+/i, '')
+    .replace(/^the\s+/i, '')
+    .trim();
+  const lower = text.toLowerCase();
+
+  if (!text) return null;
+  if (context && text === context.label) {
+    return context.target;
+  }
+  if (
+    [
+      'all',
+      'everything',
+      'all atoms',
+      'all chains',
+      'entire molecule',
+      'whole molecule',
+      'molecule',
+      'entire protein',
+      'structure',
+      'scene',
+      'model',
+    ].includes(lower)
+  ) {
+    return { kind: 'all' };
+  }
+  if (['protein', 'the protein'].includes(lower)) return { kind: 'protein' };
+  if (['ligand', 'the ligand'].includes(lower)) return { kind: 'ligand' };
+  if (['water', 'waters', 'water molecules', 'solvent'].includes(lower)) return { kind: 'water' };
+  if (['metals', 'metal', 'metal atoms'].includes(lower)) return { kind: 'metals' };
+  if (['hydrogen', 'hydrogens', 'hydrogen atoms'].includes(lower)) return { kind: 'hydrogens' };
+  if (['selection', 'current selection', 'selected', 'selected atoms', 'picked atoms'].includes(lower)) {
+    return { kind: 'current_selection' };
+  }
+
+  const chain = text.match(/^chain\s+([A-Za-z])(?:\s+in\s+object\s+([A-Za-z0-9_.-]+))?$/i);
+  if (chain) {
+    return {
+      kind: 'chain',
+      chain: chain[1].toUpperCase(),
+      ...(chain[2] ? { object: chain[2] } : {}),
+    };
+  }
+
+  const residue = text.match(
+    /^(?:residue\s+)?([A-Za-z]{1,3})(?:\s+(\d+[A-Za-z]?))?(?:\s+in\s+chain\s+([A-Za-z]))?(?:\s+in\s+object\s+([A-Za-z0-9_.-]+))?$/i
+  );
+  if (residue) {
+    const normalized = normalizeResidue(residue[1]);
+    if (!normalized) return null;
+    return {
+      kind: 'residue',
+      residue: normalized,
+      ...(residue[2] ? { resi: residue[2] } : {}),
+      ...(residue[3] ? { chain: residue[3].toUpperCase() } : {}),
+      ...(residue[4] ? { object: residue[4] } : {}),
+    };
+  }
+
+  const atom = text.match(
+    /^atom\s+([A-Za-z0-9'_*]+)(?:\s+in\s+residue\s+([A-Za-z]{1,3}))?(?:\s+(\d+[A-Za-z]?))?(?:\s+in\s+chain\s+([A-Za-z]))?(?:\s+in\s+object\s+([A-Za-z0-9_.-]+))?$/i
+  );
+  if (atom) {
+    const residueName = atom[2] ? normalizeResidue(atom[2]) : undefined;
+    return {
+      kind: 'atom',
+      atom: atom[1].toUpperCase(),
+      ...(residueName ? { residue: residueName } : {}),
+      ...(atom[3] ? { resi: atom[3] } : {}),
+      ...(atom[4] ? { chain: atom[4].toUpperCase() } : {}),
+      ...(atom[5] ? { object: atom[5] } : {}),
+    };
+  }
+
+  const object = text.match(/^object\s+([A-Za-z0-9_.-]+)$/i);
+  if (object) {
+    return { kind: 'object', object: object[1] };
+  }
+
+  return null;
+}
+
+function splitPairTargets(text: string): [string, string] | null {
+  const marker = text.match(/\bbetween\s+(.+?)\s+and\s+(.+)$/i);
+  if (!marker) return null;
+  return [marker[1].trim(), marker[2].trim()];
+}
+
+export function parsePromptToSpec(input: string, options?: { selectionTag?: SelectionTagContext | null }): Spec | null {
+  const t = input.trim();
+  const selectionTag = options?.selectionTag || null;
+
+  // Keep compound actions out of the deterministic parser.
+  if ((/\band\b/i.test(t) || /\bthen\b/i.test(t)) && !/\bbetween\b/i.test(t)) {
+    return null;
+  }
+
+  // Background
+  const bg = t.match(/(?:set\s+)?background|set\s+bg/i)
+    ? t.match(/(?:set\s+bg\s+to|set\s+background\s+to|background)\s+([a-z#0-9]+)/i)
+    : null;
+  if (bg) return { name: 'set_background', arguments: { color: bg[1].toLowerCase() } };
+
+  // Rotate
+  const rot = t.match(/rotate\s+(-?\d+(?:\.\d+)?)\s+(?:deg(?:rees?)?\s+)?(?:around|about|on)\s+([XYZxyz])/);
+  if (rot) return { name: 'rotate_view', arguments: { axis: rot[2].toUpperCase(), angle: Number(rot[1]) } };
+
+  // Snapshot
+  const shot = t.match(/(?:save\s+)?snapshot(?:\s+(?:as|named|called))?(?:\s+(.+))?$/i);
+  if (shot) return { name: 'snapshot', arguments: { filename: (shot[1] || '').trim() } };
+
+  // Sequence view
+  const showSequence = t.match(/^(?:show|display|open)\s+sequence(?:\s+(?:as|with)\s+(.+))?$/i);
+  if (showSequence) {
+    const format = parseSequenceFormat(showSequence[1]);
+    if (showSequence[1] && format) {
+      return { name: 'set_sequence_view_format', arguments: { format } };
+    }
+    return { name: 'show_sequence_view', arguments: {} };
+  }
+  if (/^(?:hide|close)\s+sequence$/i.test(t)) {
+    return { name: 'hide_sequence_view', arguments: {} };
+  }
+  const sequenceMode = t.match(/^sequence\s+(?:mode|format)\s+(.+)$/i);
+  if (sequenceMode) {
+    const format = parseSequenceFormat(sequenceMode[1]);
+    if (format) {
+      return { name: 'set_sequence_view_format', arguments: { format } };
+    }
+  }
+
+  // Distance measurement
+  if (/^measure distance between selected$/i.test(t)) {
+    return {
+      name: 'measure_distance',
+      arguments: {
+        source: { kind: 'current_selection' },
+        target: { kind: 'current_selection' },
+      },
+    };
+  }
+  if (/measure distance between/i.test(t)) {
+    const pair = splitPairTargets(t);
+    if (pair) {
+      const target = parseTarget(pair[1], selectionTag);
+      const resolvedSource = parseTarget(pair[0], selectionTag);
+      if (resolvedSource && target) {
+        return { name: 'measure_distance', arguments: { source: resolvedSource, target } };
+      }
+    }
+  }
+
+  // Polar contacts
+  if (/show (?:polar )?contacts between/i.test(t)) {
+    const pair = splitPairTargets(t);
+    if (pair) {
+      const target = parseTarget(pair[1], selectionTag);
+      const resolvedSource = parseTarget(pair[0], selectionTag);
+      if (resolvedSource && target) {
+        return { name: 'show_contacts', arguments: { source: resolvedSource, target, mode: 'polar' } };
+      }
+    }
+  }
+
+  // Align objects
+  const align = t.match(/align\s+object\s+([A-Za-z0-9_.-]+)\s+to\s+object\s+([A-Za-z0-9_.-]+)/i);
+  if (align) {
+    return {
+      name: 'align_objects',
+      arguments: {
+        mobile: { kind: 'object', object: align[1] },
+        target: { kind: 'object', object: align[2] },
+        method: 'align',
+      },
+    };
+  }
+
+  // Color by chain / element
+  const colorByChain = t.match(/(?:color|colour)(?:\s+(.+?))?\s+by\s+chain$/i);
+  if (colorByChain) {
+    const target = colorByChain[1] ? parseTarget(colorByChain[1], selectionTag) : { kind: 'all' as const };
+    if (target) return { name: 'color_by_chain', arguments: { target } };
+  }
+  const colorByElement = t.match(/(?:color|colour)(?:\s+(.+?))?\s+by\s+element$/i);
+  if (colorByElement) {
+    const target = colorByElement[1] ? parseTarget(colorByElement[1], selectionTag) : { kind: 'all' as const };
+    if (target) return { name: 'color_by_element', arguments: { target } };
+  }
+
+  // Transparency
+  const transparency = t.match(
+    /set\s+([a-z]+)\s+transparency\s+to\s+([0-9.]+%?)\s+(?:on|for)\s+(.+)$/i
+  );
+  if (transparency) {
+    const representation = parseRepresentation(transparency[1]);
+    const value = parseTransparencyValue(transparency[2]);
+    const target = parseTarget(transparency[3], selectionTag);
+    if (representation && value != null && target) {
+      return {
+        name: 'set_transparency',
+        arguments: { representation, value, target },
+      };
+    }
+  }
+
+  // Labeling
+  const labelResidues = t.match(/^label\s+residues?(?:\s+in\s+chain\s+([A-Za-z]))?$/i);
+  if (labelResidues) {
+    const target = labelResidues[1]
+      ? ({ kind: 'chain', chain: labelResidues[1].toUpperCase() } as const)
+      : ({ kind: 'protein' } as const);
+    return { name: 'label_selection', arguments: { target, mode: 'residue' } };
+  }
+  const labelTarget = t.match(/^label\s+(.+)$/i);
+  if (labelTarget) {
+    const target = parseTarget(labelTarget[1], selectionTag);
+    if (target) {
+      return {
+        name: 'label_selection',
+        arguments: { target, mode: target.kind === 'ligand' ? 'atom' : 'residue' },
+      };
+    }
+  }
+
+  // Zoom / orient
+  const zoom = t.match(/^(?:zoom|center)\s+(?:to|on)?\s*(.+)$/i);
+  if (zoom) {
+    const target = parseTarget(zoom[1], selectionTag);
+    if (target) return { name: 'zoom_selection', arguments: { target } };
+  }
+  const orient = t.match(/^orient\s+(?:to|on)?\s*(.+)$/i);
+  if (orient) {
+    const target = parseTarget(orient[1], selectionTag);
+    if (target) return { name: 'orient_selection', arguments: { target } };
+  }
+
+  // Isolate / hide-everything-except
+  const isolate = t.match(/^(?:isolate|focus on|hide everything except)\s+(.+)$/i);
+  if (isolate) {
+    const target = parseTarget(isolate[1], selectionTag);
+    if (target) {
+      const representation = target.kind === 'ligand' ? 'sticks' : undefined;
+      return { name: 'isolate_selection', arguments: { target, ...(representation ? { representation } : {}) } };
+    }
+  }
+
+  // Remove cleanup actions
+  const remove = t.match(/^(?:remove|delete)\s+(.+)$/i);
+  if (remove) {
+    const target = parseTarget(remove[1], selectionTag);
+    if (target) return { name: 'remove_selection', arguments: { target } };
+  }
+
+  // Show / hide representation
+  const showAs = t.match(/^show\s+(.+?)\s+as\s+([a-z]+)$/i);
+  if (showAs) {
+    const target = parseTarget(showAs[1], selectionTag);
+    const representation = parseRepresentation(showAs[2]);
+    if (target && representation) {
+      return { name: 'show_representation', arguments: { target, representation } };
+    }
+  }
+  const showRepTarget = t.match(/^show\s+([a-z]+)\s+(?:representation\s+)?(?:of|for)\s+(.+)$/i);
+  if (showRepTarget) {
+    const representation = parseRepresentation(showRepTarget[1]);
+    const target = parseTarget(showRepTarget[2], selectionTag);
+    if (representation && target) {
+      return { name: 'show_representation', arguments: { target, representation } };
+    }
+  }
+  const showTargetRep = t.match(/^show\s+(.+?)\s+(?:representation\s+)?(?:of\s+)?(?:the\s+)?([a-z]+)$/i);
+  if (showTargetRep) {
+    const target = parseTarget(showTargetRep[2], selectionTag);
+    const representation = parseRepresentation(showTargetRep[1]);
+    if (representation && target) {
+      return { name: 'show_representation', arguments: { target, representation } };
+    }
+  }
+  const showLegacyRep = t.match(/^show\s+(cartoon|ribbon|surface|sticks?|spheres?|mesh|dots?|lines?)$/i);
+  if (showLegacyRep) {
+    const representation = parseRepresentation(showLegacyRep[1]);
+    if (representation) {
+      return { name: 'show_representation', arguments: { target: { kind: 'all' }, representation } };
+    }
+  }
+
+  const hideRepTarget = t.match(/^hide\s+([a-z]+|everything)\s+(?:for|on)\s+(.+)$/i);
+  if (hideRepTarget) {
+    const target = parseTarget(hideRepTarget[2], selectionTag);
+    const representation = hideRepTarget[1].toLowerCase() === 'everything'
+      ? 'everything'
+      : parseRepresentation(hideRepTarget[1]);
+    if (target && representation) {
+      return { name: 'hide_representation', arguments: { target, representation } };
+    }
+  }
+
+  // Generic color commands
+  const residueFamilyColor = t.match(
+    /^(?:color|colour)\s+(?:all\s+)?(.+?)\s+residues?(?:\s+in\s+chain\s+([A-Za-z]))?\s+([a-z#0-9]+)$/i
+  );
+  if (residueFamilyColor) {
+    const residueName = normalizeResidue(residueFamilyColor[1]);
+    if (residueName) {
+      return {
+        name: 'color_selection',
+        arguments: {
+          target: {
+            kind: 'residue',
+            residue: residueName,
+            ...(residueFamilyColor[2] ? { chain: residueFamilyColor[2].toUpperCase() } : {}),
+          },
+          color: residueFamilyColor[3].toLowerCase(),
+        },
+      };
+    }
+  }
+
+  const all = t.match(/color\s+all\s+([a-z#0-9]+)/i);
+  const allChains = t.match(/^(?:color|colour)\s+all\s+chains\s+([a-z#0-9]+)$/i);
+  if (allChains) {
+    return {
+      name: 'color_selection',
+      arguments: { target: { kind: 'all' }, color: allChains[1].toLowerCase() },
+    };
+  }
+  if (all) return { name: 'color_selection', arguments: { target: { kind: 'all' }, color: all[1].toLowerCase() } };
+
+  const chain = t.match(/color\s+chain\s+([A-Za-z])\s+([a-z#0-9]+)/i);
+  if (chain) {
+    return {
+      name: 'color_selection',
+      arguments: { target: { kind: 'chain', chain: chain[1].toUpperCase() }, color: chain[2].toLowerCase() },
+    };
+  }
+
+  const residue = t.match(/color\s+([A-Za-z]{1,3})\s+([a-z#0-9]+)(?:.*chain\s+([A-Za-z]))?/i);
+  if (residue) {
+    return {
+      name: 'color_selection',
+      arguments: {
+        target: {
+          kind: 'residue',
+          residue: normalizeResidue(residue[1]),
+          ...(residue[3] ? { chain: residue[3].toUpperCase() } : {}),
+        },
+        color: residue[2].toLowerCase(),
+      },
+    };
+  }
+
+  const genericColor = t.match(/(?:color|colour)\s+(.+?)\s+([a-z#0-9]+)$/i);
+  if (genericColor) {
+    const target = parseTarget(genericColor[1], selectionTag);
+    if (target) {
+      return { name: 'color_selection', arguments: { target, color: genericColor[2].toLowerCase() } };
+    }
+  }
+
+  return null;
+}
