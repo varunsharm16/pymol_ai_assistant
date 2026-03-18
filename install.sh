@@ -110,8 +110,11 @@ if [ -z "$PYMOL_STARTUP" ]; then
     fi
 fi
 
-# Create plugin symlink
-PLUGIN_DIR="$PYMOL_STARTUP/pymol_ai_assistant"
+# Install plugin package under ~/.pymol/Plugins and add a startup loader
+PYMOL_PLUGIN_HOME="$HOME/.pymol/Plugins"
+mkdir -p "$PYMOL_PLUGIN_HOME"
+
+PLUGIN_DIR="$PYMOL_PLUGIN_HOME/pymol_ai_assistant"
 if [ -L "$PLUGIN_DIR" ]; then
     rm "$PLUGIN_DIR"
 fi
@@ -121,6 +124,39 @@ if [ -d "$PLUGIN_DIR" ]; then
 fi
 ln -s "$PLUGIN_SRC" "$PLUGIN_DIR"
 info "Plugin linked: $PLUGIN_DIR → $PLUGIN_SRC"
+
+LEGACY_STARTUP_PLUGIN="$PYMOL_STARTUP/pymol_ai_assistant"
+if [ -L "$LEGACY_STARTUP_PLUGIN" ]; then
+    rm "$LEGACY_STARTUP_PLUGIN"
+elif [ -d "$LEGACY_STARTUP_PLUGIN" ]; then
+    warn "Legacy startup plugin directory found at $LEGACY_STARTUP_PLUGIN — backing up"
+    mv "$LEGACY_STARTUP_PLUGIN" "${LEGACY_STARTUP_PLUGIN}.backup.$(date +%s)"
+fi
+
+STARTUP_LOADER="$PYMOL_STARTUP/pymol_ai_assistant_startup.py"
+cat > "$STARTUP_LOADER" <<'PYEOF'
+import importlib.util
+import pathlib
+import sys
+
+plugin_dir = pathlib.Path.home() / ".pymol" / "Plugins" / "pymol_ai_assistant"
+init_py = plugin_dir / "__init__.py"
+if not init_py.exists():
+    raise FileNotFoundError(f"PyMOL AI Assistant plugin not found at {init_py}")
+
+spec = importlib.util.spec_from_file_location(
+    "pymol_ai_assistant",
+    str(init_py),
+    submodule_search_locations=[str(plugin_dir)],
+)
+if spec is None or spec.loader is None:
+    raise ImportError(f"Could not create import spec for {init_py}")
+
+module = importlib.util.module_from_spec(spec)
+sys.modules["pymol_ai_assistant"] = module
+spec.loader.exec_module(module)
+PYEOF
+info "Startup loader written to $STARTUP_LOADER"
 
 # ---- Write project root to config ----
 CONFIG_DIR="$HOME/.pymol"

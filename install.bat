@@ -79,14 +79,46 @@ if exist "%APPDATA%\PyMOL\Startup" (
     set PYMOL_STARTUP=%APPDATA%\PyMOL\Startup
 )
 
-REM Copy plugin (Windows doesn't always support symlinks without admin)
-set PLUGIN_DIR=%PYMOL_STARTUP%\pymol_ai_assistant
+REM Copy plugin into ~/.pymol/Plugins and create a startup loader
+set PLUGIN_HOME=%USERPROFILE%\.pymol\Plugins
+if not exist "%PLUGIN_HOME%" mkdir "%PLUGIN_HOME%"
+
+set PLUGIN_DIR=%PLUGIN_HOME%\pymol_ai_assistant
 if exist "%PLUGIN_DIR%" (
     echo [!] Plugin directory already exists — replacing
     rmdir /s /q "%PLUGIN_DIR%"
 )
 xcopy "%PLUGIN_SRC%" "%PLUGIN_DIR%" /E /I /Q >nul
 echo [OK] Plugin copied to: %PLUGIN_DIR%
+
+if exist "%PYMOL_STARTUP%\pymol_ai_assistant" (
+    rmdir /s /q "%PYMOL_STARTUP%\pymol_ai_assistant"
+)
+
+set STARTUP_LOADER=%PYMOL_STARTUP%\pymol_ai_assistant_startup.py
+(
+echo import importlib.util
+echo import pathlib
+echo import sys
+echo.
+echo plugin_dir = pathlib.Path.home() / ".pymol" / "Plugins" / "pymol_ai_assistant"
+echo init_py = plugin_dir / "__init__.py"
+echo if not init_py.exists^(^):
+echo     raise FileNotFoundError^(f"PyMOL AI Assistant plugin not found at {init_py}"^)
+echo.
+echo spec = importlib.util.spec_from_file_location^(
+echo     "pymol_ai_assistant",
+echo     str^(init_py^),
+echo     submodule_search_locations=[str^(plugin_dir^)],
+echo ^)
+echo if spec is None or spec.loader is None:
+echo     raise ImportError^(f"Could not create import spec for {init_py}"^)
+echo.
+echo module = importlib.util.module_from_spec^(spec^)
+echo sys.modules["pymol_ai_assistant"] = module
+echo spec.loader.exec_module^(module^)
+) > "%STARTUP_LOADER%"
+echo [OK] Startup loader written to: %STARTUP_LOADER%
 
 REM ---- Write project root to config ----
 set CONFIG_DIR=%USERPROFILE%\.pymol
