@@ -136,7 +136,10 @@ REM ---- Write project root to config ----
 set CONFIG_DIR=%PYMOL_ROOT%
 set CONFIG_FILE=%CONFIG_DIR%\config.json
 if not exist "%CONFIG_DIR%" mkdir "%CONFIG_DIR%"
-%PYTHON_CMD% -c "import json,pathlib;p=pathlib.Path(r'%CONFIG_FILE%');cfg=json.loads(p.read_text()) if p.exists() else {};cfg['project_root']=r'%~dp0'.rstrip('\\');cfg['node_path']=r'%NODE_PATH%';cfg['npm_path']=r'%NPM_PATH%';p.write_text(json.dumps(cfg,indent=2))"
+set "PROJECT_ROOT=%~dp0"
+for %%I in ("%PROJECT_ROOT%") do set "PROJECT_ROOT=%%~fI"
+if "%PROJECT_ROOT:~-1%"=="\" set "PROJECT_ROOT=%PROJECT_ROOT:~0,-1%"
+%PYTHON_CMD% -c "import json, os, pathlib; p=pathlib.Path(os.environ['CONFIG_FILE']); cfg=json.loads(p.read_text()) if p.exists() else {}; cfg['project_root']=os.environ['PROJECT_ROOT']; cfg['node_path']=os.environ['NODE_PATH']; cfg['npm_path']=os.environ['NPM_PATH']; p.write_text(json.dumps(cfg, indent=2))"
 if errorlevel 1 (
     echo [X] Failed to write config.json at %CONFIG_FILE%
     exit /b 1
