@@ -42,7 +42,7 @@ echo [OK] Node.js: %NODEVER%
 
 REM ---- Check npm ----
 set "NPM_PATH="
-npm --version >nul 2>&1
+call npm --version >nul 2>&1
 if %errorlevel% neq 0 (
     echo [X] npm is required (comes with Node.js)
     exit /b 1
