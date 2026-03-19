@@ -1,4 +1,5 @@
 @echo off
+setlocal
 REM PyMOL AI Assistant — Installer for Windows
 REM Usage: install.bat
 
@@ -74,25 +75,66 @@ echo [OK] Electron UI dependencies installed
 REM ---- Step 3: PyMOL plugin ----
 echo [3/3] Installing PyMOL plugin...
 set PLUGIN_SRC=%~dp0plugin
+set PYMOL_ROOT=%USERPROFILE%\.pymol
+
+echo [INFO] USERPROFILE = %USERPROFILE%
+echo [INFO] Plugin source = %PLUGIN_SRC%
+echo [INFO] PyMOL user root = %PYMOL_ROOT%
+
+if not exist "%PLUGIN_SRC%\__init__.py" (
+    echo [X] Plugin source is missing __init__.py at %PLUGIN_SRC%
+    exit /b 1
+)
+if not exist "%PLUGIN_SRC%\command_model.py" (
+    echo [X] Plugin source is missing command_model.py at %PLUGIN_SRC%
+    exit /b 1
+)
 
 REM Copy plugin into ~/.pymol/Plugins
-set PLUGIN_HOME=%USERPROFILE%\.pymol\Plugins
+set PLUGIN_HOME=%PYMOL_ROOT%\Plugins
 if not exist "%PLUGIN_HOME%" mkdir "%PLUGIN_HOME%"
+if errorlevel 1 (
+    echo [X] Failed to create plugin home at %PLUGIN_HOME%
+    exit /b 1
+)
 
 set PLUGIN_DIR=%PLUGIN_HOME%\pymol_ai_assistant
-if exist "%PLUGIN_DIR%" (
-    echo [!] Plugin directory already exists — replacing
-    rmdir /s /q "%PLUGIN_DIR%"
+
+%PYTHON_CMD% -c "import pathlib, shutil, sys; src=pathlib.Path(r'%PLUGIN_SRC%'); dst=pathlib.Path(r'%PLUGIN_DIR%'); dst.parent.mkdir(parents=True, exist_ok=True); shutil.rmtree(dst, ignore_errors=True); shutil.copytree(src, dst)"
+if errorlevel 1 (
+    echo [X] Failed to copy plugin from %PLUGIN_SRC% to %PLUGIN_DIR%
+    exit /b 1
 )
-xcopy "%PLUGIN_SRC%" "%PLUGIN_DIR%" /E /I /Q >nul
+
+if not exist "%PLUGIN_DIR%\__init__.py" (
+    echo [X] Plugin copy failed: __init__.py missing at %PLUGIN_DIR%
+    dir "%PLUGIN_HOME%" 2>nul
+    exit /b 1
+)
+if not exist "%PLUGIN_DIR%\command_model.py" (
+    echo [X] Plugin copy failed: command_model.py missing at %PLUGIN_DIR%
+    dir "%PLUGIN_DIR%" 2>nul
+    exit /b 1
+)
+
 echo [OK] Plugin copied to: %PLUGIN_DIR%
+dir "%PLUGIN_DIR%"
+
 for /f "delims=" %%a in ('%PYTHON_CMD% "%~dp0scripts\manage_pymol_startup.py" --install --verbose') do echo %%a
+if errorlevel 1 (
+    echo [X] Failed to configure PyMOL startup hooks
+    exit /b 1
+)
 
 REM ---- Write project root to config ----
-set CONFIG_DIR=%USERPROFILE%\.pymol
+set CONFIG_DIR=%PYMOL_ROOT%
 set CONFIG_FILE=%CONFIG_DIR%\config.json
 if not exist "%CONFIG_DIR%" mkdir "%CONFIG_DIR%"
 %PYTHON_CMD% -c "import json,pathlib;p=pathlib.Path(r'%CONFIG_FILE%');cfg=json.loads(p.read_text()) if p.exists() else {};cfg['project_root']=r'%~dp0'.rstrip('\\');cfg['node_path']=r'%NODE_PATH%';cfg['npm_path']=r'%NPM_PATH%';p.write_text(json.dumps(cfg,indent=2))"
+if errorlevel 1 (
+    echo [X] Failed to write config.json at %CONFIG_FILE%
+    exit /b 1
+)
 echo [OK] Project root saved to %CONFIG_FILE%
 
 echo.
@@ -104,12 +146,14 @@ if exist "%PLUGIN_DIR%\__init__.py" (
     echo [OK] Plugin __init__.py found at %PLUGIN_DIR%
 ) else (
     echo [X] Plugin __init__.py MISSING at %PLUGIN_DIR%
+    exit /b 1
 )
 
 if exist "%PLUGIN_DIR%\command_model.py" (
     echo [OK] command_model.py found
 ) else (
     echo [X] command_model.py MISSING at %PLUGIN_DIR%
+    exit /b 1
 )
 
 REM Verify pymolrc files have the managed block
@@ -142,6 +186,7 @@ if exist "%CONFIG_FILE%" (
     echo [OK] config.json exists at %CONFIG_FILE%
 ) else (
     echo [X] config.json MISSING at %CONFIG_FILE%
+    exit /b 1
 )
 
 echo.
