@@ -24,30 +24,41 @@ for /f "tokens=2 delims= " %%a in ('%PYTHON_CMD% --version 2^>^&1') do set PYVER
 echo [OK] Python: %PYVER%
 
 REM ---- Check Node.js ----
+set "NODE_PATH="
 node --version >nul 2>&1
 if %errorlevel% neq 0 (
     echo [X] Node.js is required. Install v18+ from https://nodejs.org
     exit /b 1
 )
 for /f %%a in ('node --version') do set NODEVER=%%a
-for /f "delims=" %%a in ('where node') do (
-    set NODE_PATH=%%a
-    goto :node_path_done
+for /f "delims=" %%a in ('where.exe node.exe 2^>nul') do (
+    if not defined NODE_PATH set "NODE_PATH=%%a"
 )
-:node_path_done
+if not defined NODE_PATH (
+    echo [X] Could not resolve node.exe on PATH
+    exit /b 1
+)
 echo [OK] Node.js: %NODEVER%
 
 REM ---- Check npm ----
+set "NPM_PATH="
 npm --version >nul 2>&1
 if %errorlevel% neq 0 (
     echo [X] npm is required (comes with Node.js)
     exit /b 1
 )
-for /f "delims=" %%a in ('where npm') do (
-    set NPM_PATH=%%a
-    goto :npm_path_done
+for /f "delims=" %%a in ('where.exe npm.cmd 2^>nul') do (
+    if not defined NPM_PATH set "NPM_PATH=%%a"
 )
-:npm_path_done
+if not defined NPM_PATH (
+    for /f "delims=" %%a in ('where.exe npm 2^>nul') do (
+        if not defined NPM_PATH set "NPM_PATH=%%a"
+    )
+)
+if not defined NPM_PATH (
+    echo [X] Could not resolve npm on PATH
+    exit /b 1
+)
 echo [OK] npm found
 
 echo.
