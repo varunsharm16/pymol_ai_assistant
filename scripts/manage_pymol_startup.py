@@ -70,7 +70,7 @@ def detect_platform(value: str) -> str:
 
 def startup_file_for(platform_name: str, home: Path) -> Path:
     if platform_name == "windows":
-        return home / "pymolrc.pml"
+        return home / "pymolrc"
     return home / ".pymolrc"
 
 
@@ -97,6 +97,7 @@ def legacy_loader_paths(platform_name: str, home: Path) -> list[Path]:
                     startup_dir / "pymol_ai_assistant",
                 ]
             )
+        paths.append(home / "pymolrc.pml")
     return paths
 
 
@@ -171,11 +172,21 @@ def install_startup_hook(platform_name: str, plugin_dir: Path | None, home: Path
     action = "created"
 
     original_text = ""
+    wrong_windows_startup = home / "pymolrc.pml"
+
     if startup_file.exists():
         backup = backup_existing(startup_file)
         if backup is not None:
             backups.append(backup)
         original_text = startup_file.read_text(encoding="utf-8")
+        action = "updated"
+    elif platform_name == "windows" and wrong_windows_startup.exists():
+        backup = backup_existing(wrong_windows_startup)
+        if backup is not None:
+            backups.append(backup)
+        original_text = wrong_windows_startup.read_text(encoding="utf-8")
+        migrated.append(str(wrong_windows_startup))
+        wrong_windows_startup.unlink()
         action = "updated"
 
     text = strip_managed_block(original_text)

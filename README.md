@@ -133,7 +133,7 @@ Typical plugin locations:
 
 - `~/.pymol/Plugins/pymol_ai_assistant`
 - macOS/Linux startup file: `~/.pymolrc`
-- Windows startup file: `%USERPROFILE%\pymolrc.pml`
+- Windows startup file: `%USERPROFILE%\pymolrc`
 
 ### Bootstrap says PyMOL was not found
 

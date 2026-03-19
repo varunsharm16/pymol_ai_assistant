@@ -16,7 +16,7 @@ def test_startup_file_for_macos(tmp_path):
 
 
 def test_startup_file_for_windows(tmp_path):
-    assert startup_file_for("windows", tmp_path) == tmp_path / "pymolrc.pml"
+    assert startup_file_for("windows", tmp_path) == tmp_path / "pymolrc"
 
 
 def test_install_creates_startup_file(tmp_path):
@@ -91,3 +91,19 @@ def test_install_migrates_legacy_plugin_directory(tmp_path):
     assert not legacy_dir.exists()
     assert any("pymol_ai_assistant_plugin" in item for item in result.migrated)
     assert any("pymol_ai_assistant_plugin.backup." in str(path) for path in result.backups)
+
+
+def test_windows_install_migrates_wrong_pymolrc_pml(tmp_path):
+    wrong_startup = tmp_path / "pymolrc.pml"
+    wrong_startup.write_text("set ray_trace_mode, 1\n", encoding="utf-8")
+
+    result = install_startup_hook("windows", None, tmp_path)
+    correct_startup = tmp_path / "pymolrc"
+    content = correct_startup.read_text(encoding="utf-8")
+
+    assert correct_startup.exists()
+    assert not wrong_startup.exists()
+    assert "set ray_trace_mode, 1" in content
+    assert MANAGED_START in content
+    assert any("pymolrc.pml" in item for item in result.migrated)
+    assert any("pymolrc.pml.backup." in str(path) for path in result.backups)
