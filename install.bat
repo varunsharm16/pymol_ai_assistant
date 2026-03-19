@@ -42,11 +42,6 @@ echo [OK] Node.js: %NODEVER%
 
 REM ---- Check npm ----
 set "NPM_PATH="
-call npm --version >nul 2>&1
-if %errorlevel% neq 0 (
-    echo [X] npm is required (comes with Node.js)
-    exit /b 1
-)
 for /f "delims=" %%a in ('where.exe npm.cmd 2^>nul') do (
     if not defined NPM_PATH set "NPM_PATH=%%a"
 )
@@ -59,7 +54,7 @@ if not defined NPM_PATH (
     echo [X] Could not resolve npm on PATH
     exit /b 1
 )
-echo [OK] npm found
+echo [OK] npm: %NPM_PATH%
 
 echo.
 
