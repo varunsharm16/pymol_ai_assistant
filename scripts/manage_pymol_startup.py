@@ -66,6 +66,54 @@ python end
 {MANAGED_END}
 """
 
+# Pure Python startup loader for PyMOL's Startup directory.
+# This is NOT wrapped in python/python end — it's loaded directly as a .py file.
+STARTUP_LOADER_SCRIPT = '''\
+import importlib.util
+import os
+import pathlib
+import sys
+import traceback
+
+print("[AI-BRIDGE] ---- startup diagnostics (Startup dir loader) ----")
+
+_home = pathlib.Path.home()
+print(f"[AI-BRIDGE] Path.home() = {_home}")
+print(f"[AI-BRIDGE] USERPROFILE  = {os.environ.get('USERPROFILE', '(not set)')}")
+print(f"[AI-BRIDGE] HOME         = {os.environ.get('HOME', '(not set)')}")
+
+plugin_dir = _home / ".pymol" / "Plugins" / "pymol_ai_assistant"
+init_py = plugin_dir / "__init__.py"
+print(f"[AI-BRIDGE] Looking for plugin at: {init_py}")
+print(f"[AI-BRIDGE] Plugin dir exists:  {plugin_dir.exists()}")
+print(f"[AI-BRIDGE] __init__.py exists: {init_py.exists()}")
+
+if "pymol_ai_assistant" in sys.modules:
+    print("[AI-BRIDGE] Plugin already loaded (sys.modules hit)")
+elif not init_py.exists():
+    print(f"[AI-BRIDGE] ERROR: Plugin not found at {init_py}")
+    print("[AI-BRIDGE] Re-run the installer or check that the above path exists.")
+else:
+    try:
+        spec = importlib.util.spec_from_file_location(
+            "pymol_ai_assistant",
+            str(init_py),
+            submodule_search_locations=[str(plugin_dir)],
+        )
+        if spec is None or spec.loader is None:
+            print(f"[AI-BRIDGE] ERROR: Could not create import spec for {init_py}")
+        else:
+            module = importlib.util.module_from_spec(spec)
+            sys.modules["pymol_ai_assistant"] = module
+            spec.loader.exec_module(module)
+            print("[AI-BRIDGE] Plugin loaded successfully. Type \'ai\' to launch.")
+    except Exception as _exc:
+        print(f"[AI-BRIDGE] ERROR loading plugin: {_exc}")
+        traceback.print_exc()
+
+print("[AI-BRIDGE] ---- end diagnostics ----")
+'''
+
 LEGACY_PLUGIN_PATTERNS = (
     re.compile(r"^\s*run\s+.*pymol_ai_assistant[/\\]__init__\.py\s*$", re.IGNORECASE),
     re.compile(r"^\s*run\s+.*pymol_ai_assistant_plugin[/\\]__init__\.py\s*$", re.IGNORECASE),
@@ -129,6 +177,12 @@ def startup_files_for(platform_name: str, home: Path) -> list[Path]:
 
 
 def legacy_loader_paths(platform_name: str, home: Path) -> list[Path]:
+    """Paths to remove during migration.
+
+    NOTE: On Windows, %APPDATA%\\\\PyMOL\\\\Startup\\\\pymol_ai_assistant_startup.py
+    is NOT legacy — we actively write to it. Only the directory-style loader
+    (pymol_ai_assistant/) is legacy.
+    """
     paths = [
         home / ".pymol" / "startup" / "pymol_ai_assistant_startup.py",
         home / ".pymol" / "startup" / "pymol_ai_assistant",
@@ -145,13 +199,23 @@ def legacy_loader_paths(platform_name: str, home: Path) -> list[Path]:
         appdata = os.environ.get("APPDATA")
         if appdata:
             startup_dir = Path(appdata) / "PyMOL" / "Startup"
-            paths.extend(
-                [
-                    startup_dir / "pymol_ai_assistant_startup.py",
-                    startup_dir / "pymol_ai_assistant",
-                ]
-            )
+            # Only the directory-form is legacy; the .py file is actively managed
+            paths.append(startup_dir / "pymol_ai_assistant")
     return paths
+
+
+def startup_dir_paths_for(platform_name: str, home: Path) -> list[Path]:
+    """Return directories where PyMOL auto-loads .py files at startup."""
+    dirs: list[Path] = []
+    if platform_name == "windows":
+        appdata = os.environ.get("APPDATA")
+        if appdata:
+            dirs.append(Path(appdata) / "PyMOL" / "Startup")
+    elif platform_name == "macos":
+        dirs.append(home / "Library" / "Application Support" / "PyMOL" / "Startup")
+    # Also check the lowercase .pymol/startup used by open-source PyMOL
+    dirs.append(home / ".pymol" / "startup")
+    return _unique_paths(dirs)
 
 
 def backup_path(path: Path) -> Path:
@@ -236,6 +300,17 @@ def _update_startup_file(startup_file: Path) -> tuple[str, list[Path], list[str]
     startup_file.write_text(final_text.rstrip() + "\n", encoding="utf-8")
     return action, backups, migrated
 
+def _write_startup_loader(startup_dirs: list[Path]) -> list[Path]:
+    """Write the pure-Python startup loader into each Startup directory."""
+    written: list[Path] = []
+    for d in startup_dirs:
+        d.mkdir(parents=True, exist_ok=True)
+        loader = d / "pymol_ai_assistant_startup.py"
+        loader.write_text(STARTUP_LOADER_SCRIPT, encoding="utf-8")
+        written.append(loader)
+    return written
+
+
 def install_startup_hook(platform_name: str, plugin_dir: Path | None, home: Path) -> StartupResult:
     startup_files = startup_files_for(platform_name, home)
     primary_startup_file = startup_files[0]
@@ -248,6 +323,7 @@ def install_startup_hook(platform_name: str, plugin_dir: Path | None, home: Path
     if plugin_dir is not None:
         _ = plugin_dir
 
+    # Write managed block into pymolrc / pymolrc.pml
     for startup_file in startup_files:
         file_action, file_backups, file_migrated = _update_startup_file(startup_file)
         if file_action == "updated":
@@ -255,6 +331,12 @@ def install_startup_hook(platform_name: str, plugin_dir: Path | None, home: Path
         backups.extend(file_backups)
         migrated.extend(file_migrated)
         written_files.append(startup_file)
+
+    # Write pure-Python loader into PyMOL Startup directories
+    # This is the primary mechanism on Windows where pymolrc is often not read
+    startup_dirs = startup_dir_paths_for(platform_name, home)
+    loader_files = _write_startup_loader(startup_dirs)
+    written_files.extend(loader_files)
 
     legacy_backups, legacy_migrated = migrate_legacy_paths(legacy_loader_paths(platform_name, home))
     backups.extend(legacy_backups)
