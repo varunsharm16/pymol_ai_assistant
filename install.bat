@@ -96,6 +96,55 @@ if not exist "%CONFIG_DIR%" mkdir "%CONFIG_DIR%"
 echo [OK] Project root saved to %CONFIG_FILE%
 
 echo.
+echo ---- Post-install verification ----
+echo.
+
+REM Verify plugin files
+if exist "%PLUGIN_DIR%\__init__.py" (
+    echo [OK] Plugin __init__.py found at %PLUGIN_DIR%
+) else (
+    echo [X] Plugin __init__.py MISSING at %PLUGIN_DIR%
+)
+
+if exist "%PLUGIN_DIR%\command_model.py" (
+    echo [OK] command_model.py found
+) else (
+    echo [X] command_model.py MISSING at %PLUGIN_DIR%
+)
+
+REM Verify pymolrc files have the managed block
+set RC_FOUND=0
+if exist "%USERPROFILE%\pymolrc" (
+    findstr /C:"PyMOL AI Assistant (managed)" "%USERPROFILE%\pymolrc" >nul 2>&1
+    if not errorlevel 1 (
+        echo [OK] Startup hook found in %USERPROFILE%\pymolrc
+        set RC_FOUND=1
+    ) else (
+        echo [!] %USERPROFILE%\pymolrc exists but does NOT contain the managed block
+    )
+)
+if exist "%USERPROFILE%\pymolrc.pml" (
+    findstr /C:"PyMOL AI Assistant (managed)" "%USERPROFILE%\pymolrc.pml" >nul 2>&1
+    if not errorlevel 1 (
+        echo [OK] Startup hook found in %USERPROFILE%\pymolrc.pml
+        set RC_FOUND=1
+    ) else (
+        echo [!] %USERPROFILE%\pymolrc.pml exists but does NOT contain the managed block
+    )
+)
+if %RC_FOUND% equ 0 (
+    echo [!] WARNING: No pymolrc file with startup hook found.
+    echo [!] PyMOL may not load the plugin automatically.
+)
+
+REM Verify config.json
+if exist "%CONFIG_FILE%" (
+    echo [OK] config.json exists at %CONFIG_FILE%
+) else (
+    echo [X] config.json MISSING at %CONFIG_FILE%
+)
+
+echo.
 echo ======================================
 echo  Installation complete!
 echo ======================================
@@ -105,5 +154,8 @@ echo   2. Type: ai
 echo   3. That's it! PyMOL will auto-load the assistant on startup.
 echo.
 echo   First time? Enter your OpenAI API key in the Settings panel.
+echo.
+echo   Having trouble? Run this in PowerShell:
+echo     powershell -ExecutionPolicy Bypass -File "%~dp0diagnose-windows.ps1"
 echo.
 pause

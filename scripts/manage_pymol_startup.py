@@ -20,26 +20,48 @@ MANAGED_END = "# <<< PyMOL AI Assistant (managed) <<<"
 MANAGED_BLOCK = f"""{MANAGED_START}
 python
 import importlib.util
+import os
 import pathlib
 import sys
+import traceback
 
-if "pymol_ai_assistant" not in sys.modules:
-    plugin_dir = pathlib.Path.home() / ".pymol" / "Plugins" / "pymol_ai_assistant"
-    init_py = plugin_dir / "__init__.py"
-    if init_py.exists():
+print("[AI-BRIDGE] ---- startup diagnostics ----")
+
+_home = pathlib.Path.home()
+print(f"[AI-BRIDGE] Path.home() = {{_home}}")
+print(f"[AI-BRIDGE] USERPROFILE  = {{os.environ.get('USERPROFILE', '(not set)')}}")
+print(f"[AI-BRIDGE] HOME         = {{os.environ.get('HOME', '(not set)')}}")
+
+plugin_dir = _home / ".pymol" / "Plugins" / "pymol_ai_assistant"
+init_py = plugin_dir / "__init__.py"
+print(f"[AI-BRIDGE] Looking for plugin at: {{init_py}}")
+print(f"[AI-BRIDGE] Plugin dir exists:  {{plugin_dir.exists()}}")
+print(f"[AI-BRIDGE] __init__.py exists: {{init_py.exists()}}")
+
+if "pymol_ai_assistant" in sys.modules:
+    print("[AI-BRIDGE] Plugin already loaded (sys.modules hit)")
+elif not init_py.exists():
+    print(f"[AI-BRIDGE] ERROR: Plugin not found at {{init_py}}")
+    print("[AI-BRIDGE] Re-run the installer or check that the above path exists.")
+else:
+    try:
         spec = importlib.util.spec_from_file_location(
             "pymol_ai_assistant",
             str(init_py),
             submodule_search_locations=[str(plugin_dir)],
         )
-        if spec is not None and spec.loader is not None:
+        if spec is None or spec.loader is None:
+            print(f"[AI-BRIDGE] ERROR: Could not create import spec for {{init_py}}")
+        else:
             module = importlib.util.module_from_spec(spec)
             sys.modules["pymol_ai_assistant"] = module
             spec.loader.exec_module(module)
-        else:
-            print(f"[AI-BRIDGE] Could not create import spec for {{init_py}}")
-    else:
-        print(f"[AI-BRIDGE] Plugin not found at {{init_py}}")
+            print("[AI-BRIDGE] Plugin loaded successfully. Type 'ai' to launch.")
+    except Exception as _exc:
+        print(f"[AI-BRIDGE] ERROR loading plugin: {{_exc}}")
+        traceback.print_exc()
+
+print("[AI-BRIDGE] ---- end diagnostics ----")
 python end
 {MANAGED_END}
 """
