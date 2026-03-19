@@ -53,6 +53,7 @@ LEGACY_PLUGIN_PATTERNS = (
 @dataclass
 class StartupResult:
     startup_file: Path
+    written_files: list[Path]
     action: str
     backups: list[Path]
     migrated: list[str]
@@ -68,10 +69,41 @@ def detect_platform(value: str) -> str:
     return "linux"
 
 
-def startup_file_for(platform_name: str, home: Path) -> Path:
-    if platform_name == "windows":
-        return home / "pymolrc"
-    return home / ".pymolrc"
+def _unique_paths(paths: Iterable[Path]) -> list[Path]:
+    seen: set[str] = set()
+    result: list[Path] = []
+    for path in paths:
+        key = str(path)
+        if key in seen:
+            continue
+        seen.add(key)
+        result.append(path)
+    return result
+
+
+def startup_files_for(platform_name: str, home: Path) -> list[Path]:
+    if platform_name != "windows":
+        return [home / ".pymolrc"]
+
+    bases: list[Path] = []
+    for key in ("HOME", "USERPROFILE"):
+        value = os.environ.get(key)
+        if value:
+            bases.append(Path(value))
+
+    home_drive = os.environ.get("HOMEDRIVE")
+    home_path = os.environ.get("HOMEPATH")
+    if home_drive and home_path:
+        bases.append(Path(f"{home_drive}{home_path}"))
+
+    if not bases:
+        bases.append(home)
+
+    targets: list[Path] = []
+    for base in _unique_paths(bases):
+        targets.append(base / "pymolrc")
+        targets.append(base / "pymolrc.pml")
+    return _unique_paths(targets)
 
 
 def legacy_loader_paths(platform_name: str, home: Path) -> list[Path]:
@@ -97,7 +129,6 @@ def legacy_loader_paths(platform_name: str, home: Path) -> list[Path]:
                     startup_dir / "pymol_ai_assistant",
                 ]
             )
-        paths.append(home / "pymolrc.pml")
     return paths
 
 
@@ -163,49 +194,53 @@ def migrate_legacy_paths(paths: Iterable[Path]) -> tuple[list[Path], list[str]]:
     return backups, migrated
 
 
-def install_startup_hook(platform_name: str, plugin_dir: Path | None, home: Path) -> StartupResult:
-    startup_file = startup_file_for(platform_name, home)
+def _update_startup_file(startup_file: Path) -> tuple[str, list[Path], list[str]]:
     startup_file.parent.mkdir(parents=True, exist_ok=True)
-
     backups: list[Path] = []
     migrated: list[str] = []
     action = "created"
-
     original_text = ""
-    wrong_windows_startup = home / "pymolrc.pml"
-
     if startup_file.exists():
         backup = backup_existing(startup_file)
         if backup is not None:
             backups.append(backup)
         original_text = startup_file.read_text(encoding="utf-8")
         action = "updated"
-    elif platform_name == "windows" and wrong_windows_startup.exists():
-        backup = backup_existing(wrong_windows_startup)
-        if backup is not None:
-            backups.append(backup)
-        original_text = wrong_windows_startup.read_text(encoding="utf-8")
-        migrated.append(str(wrong_windows_startup))
-        wrong_windows_startup.unlink()
-        action = "updated"
 
     text = strip_managed_block(original_text)
     text, migrated_lines = migrate_legacy_lines(text)
     migrated.extend(migrated_lines)
-
-    if plugin_dir is not None:
-        # Future-proofing for tests; current managed block uses the home plugin path.
-        _ = plugin_dir
-
     final_text = append_managed_block(text)
     startup_file.write_text(final_text.rstrip() + "\n", encoding="utf-8")
+    return action, backups, migrated
+
+def install_startup_hook(platform_name: str, plugin_dir: Path | None, home: Path) -> StartupResult:
+    startup_files = startup_files_for(platform_name, home)
+    primary_startup_file = startup_files[0]
+
+    backups: list[Path] = []
+    migrated: list[str] = []
+    action = "created"
+    written_files: list[Path] = []
+
+    if plugin_dir is not None:
+        _ = plugin_dir
+
+    for startup_file in startup_files:
+        file_action, file_backups, file_migrated = _update_startup_file(startup_file)
+        if file_action == "updated":
+            action = "updated"
+        backups.extend(file_backups)
+        migrated.extend(file_migrated)
+        written_files.append(startup_file)
 
     legacy_backups, legacy_migrated = migrate_legacy_paths(legacy_loader_paths(platform_name, home))
     backups.extend(legacy_backups)
     migrated.extend(legacy_migrated)
 
     return StartupResult(
-        startup_file=startup_file,
+        startup_file=primary_startup_file,
+        written_files=written_files,
         action=action,
         backups=backups,
         migrated=migrated,
@@ -238,9 +273,11 @@ def main() -> int:
 
     print(
         f"AI_STARTUP_OK file={result.startup_file} action={result.action} "
-        f"migrated={len(result.migrated)} backups={len(result.backups)}"
+        f"files={len(result.written_files)} migrated={len(result.migrated)} backups={len(result.backups)}"
     )
     if args.verbose:
+        for item in result.written_files:
+            print(f"WROTE {item}")
         for item in result.migrated:
             print(f"MIGRATED {item}")
         for item in result.backups:

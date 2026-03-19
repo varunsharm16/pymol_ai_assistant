@@ -7,16 +7,33 @@ from scripts.manage_pymol_startup import (
     MANAGED_END,
     MANAGED_START,
     install_startup_hook,
-    startup_file_for,
+    startup_files_for,
 )
 
 
 def test_startup_file_for_macos(tmp_path):
-    assert startup_file_for("macos", tmp_path) == tmp_path / ".pymolrc"
+    assert startup_files_for("macos", tmp_path) == [tmp_path / ".pymolrc"]
 
 
 def test_startup_file_for_windows(tmp_path):
-    assert startup_file_for("windows", tmp_path) == tmp_path / "pymolrc"
+    original = {key: sys.modules["os"].environ.get(key) for key in ("HOME", "USERPROFILE", "HOMEDRIVE", "HOMEPATH")}
+    try:
+        sys.modules["os"].environ["USERPROFILE"] = str(tmp_path / "userprofile")
+        sys.modules["os"].environ["HOME"] = str(tmp_path / "home")
+        sys.modules["os"].environ["HOMEDRIVE"] = str(tmp_path / "drive")
+        sys.modules["os"].environ["HOMEPATH"] = "\\profile"
+        files = startup_files_for("windows", tmp_path)
+    finally:
+        for key, value in original.items():
+            if value is None:
+                sys.modules["os"].environ.pop(key, None)
+            else:
+                sys.modules["os"].environ[key] = value
+
+    assert tmp_path / "userprofile" / "pymolrc" in files
+    assert tmp_path / "userprofile" / "pymolrc.pml" in files
+    assert tmp_path / "home" / "pymolrc" in files
+    assert Path(f"{tmp_path / 'drive'}\\profile") / "pymolrc" in files
 
 
 def test_install_creates_startup_file(tmp_path):
@@ -94,16 +111,27 @@ def test_install_migrates_legacy_plugin_directory(tmp_path):
 
 
 def test_windows_install_migrates_wrong_pymolrc_pml(tmp_path):
-    wrong_startup = tmp_path / "pymolrc.pml"
-    wrong_startup.write_text("set ray_trace_mode, 1\n", encoding="utf-8")
+    original = {key: sys.modules["os"].environ.get(key) for key in ("HOME", "USERPROFILE", "HOMEDRIVE", "HOMEPATH")}
+    userprofile = tmp_path / "userprofile"
+    userprofile.mkdir()
+    try:
+        sys.modules["os"].environ["USERPROFILE"] = str(userprofile)
+        sys.modules["os"].environ.pop("HOME", None)
+        sys.modules["os"].environ.pop("HOMEDRIVE", None)
+        sys.modules["os"].environ.pop("HOMEPATH", None)
 
-    result = install_startup_hook("windows", None, tmp_path)
-    correct_startup = tmp_path / "pymolrc"
-    content = correct_startup.read_text(encoding="utf-8")
+        wrong_startup = userprofile / "pymolrc.pml"
+        wrong_startup.write_text("set ray_trace_mode, 1\n", encoding="utf-8")
+        result = install_startup_hook("windows", None, tmp_path)
+    finally:
+        for key, value in original.items():
+            if value is None:
+                sys.modules["os"].environ.pop(key, None)
+            else:
+                sys.modules["os"].environ[key] = value
 
-    assert correct_startup.exists()
-    assert not wrong_startup.exists()
+    content = wrong_startup.read_text(encoding="utf-8")
+    assert wrong_startup.exists()
     assert "set ray_trace_mode, 1" in content
     assert MANAGED_START in content
-    assert any("pymolrc.pml" in item for item in result.migrated)
-    assert any("pymolrc.pml.backup." in str(path) for path in result.backups)
+    assert wrong_startup in result.written_files
