@@ -86,31 +86,7 @@ info "Electron UI dependencies installed"
 echo -e "${BOLD}[3/3] Installing PyMOL plugin...${NC}"
 PLUGIN_SRC="$ROOT/plugin"
 
-# Detect PyMOL startup directory
-PYMOL_STARTUP=""
-CANDIDATES=(
-    "$HOME/Library/Application Support/PyMOL/Startup"
-    "$HOME/.pymol/startup"
-)
-for dir in "${CANDIDATES[@]}"; do
-    if [ -d "$dir" ]; then
-        PYMOL_STARTUP="$dir"
-        break
-    fi
-done
-
-# Create if common macOS path exists
-if [ -z "$PYMOL_STARTUP" ]; then
-    if [ -d "/Applications/PyMOL.app" ] || [ -d "$HOME/Applications/PyMOL.app" ]; then
-        PYMOL_STARTUP="$HOME/Library/Application Support/PyMOL/Startup"
-        mkdir -p "$PYMOL_STARTUP"
-    else
-        PYMOL_STARTUP="$HOME/.pymol/startup"
-        mkdir -p "$PYMOL_STARTUP"
-    fi
-fi
-
-# Install plugin package under ~/.pymol/Plugins and add a startup loader
+# Install plugin package under ~/.pymol/Plugins
 PYMOL_PLUGIN_HOME="$HOME/.pymol/Plugins"
 mkdir -p "$PYMOL_PLUGIN_HOME"
 
@@ -125,38 +101,8 @@ fi
 ln -s "$PLUGIN_SRC" "$PLUGIN_DIR"
 info "Plugin linked: $PLUGIN_DIR → $PLUGIN_SRC"
 
-LEGACY_STARTUP_PLUGIN="$PYMOL_STARTUP/pymol_ai_assistant"
-if [ -L "$LEGACY_STARTUP_PLUGIN" ]; then
-    rm "$LEGACY_STARTUP_PLUGIN"
-elif [ -d "$LEGACY_STARTUP_PLUGIN" ]; then
-    warn "Legacy startup plugin directory found at $LEGACY_STARTUP_PLUGIN — backing up"
-    mv "$LEGACY_STARTUP_PLUGIN" "${LEGACY_STARTUP_PLUGIN}.backup.$(date +%s)"
-fi
-
-STARTUP_LOADER="$PYMOL_STARTUP/pymol_ai_assistant_startup.py"
-cat > "$STARTUP_LOADER" <<'PYEOF'
-import importlib.util
-import pathlib
-import sys
-
-plugin_dir = pathlib.Path.home() / ".pymol" / "Plugins" / "pymol_ai_assistant"
-init_py = plugin_dir / "__init__.py"
-if not init_py.exists():
-    raise FileNotFoundError(f"PyMOL AI Assistant plugin not found at {init_py}")
-
-spec = importlib.util.spec_from_file_location(
-    "pymol_ai_assistant",
-    str(init_py),
-    submodule_search_locations=[str(plugin_dir)],
-)
-if spec is None or spec.loader is None:
-    raise ImportError(f"Could not create import spec for {init_py}")
-
-module = importlib.util.module_from_spec(spec)
-sys.modules["pymol_ai_assistant"] = module
-spec.loader.exec_module(module)
-PYEOF
-info "Startup loader written to $STARTUP_LOADER"
+STARTUP_RESULT="$("$PYTHON" "$ROOT/scripts/manage_pymol_startup.py" --install --verbose)"
+echo "$STARTUP_RESULT"
 
 # ---- Write project root to config ----
 CONFIG_DIR="$HOME/.pymol"
@@ -208,7 +154,7 @@ echo -e "${BOLD}${GREEN}Installation complete!${NC}"
 echo ""
 echo "  1. Open PyMOL"
 echo "  2. Type: ai"
-echo "  3. That's it! The bridge, UI, and plugin will start automatically."
+echo "  3. That's it! PyMOL will auto-load the assistant on startup."
 echo ""
 echo "  First time? Enter your OpenAI API key in the Settings panel."
 echo ""

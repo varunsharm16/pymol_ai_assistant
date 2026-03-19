@@ -33,6 +33,7 @@ These bootstrap scripts:
 - install missing Git, Python, Node.js, and npm if needed
 - clone or update the repo automatically
 - run the normal installer
+- configure PyMOL to auto-load the assistant on startup
 
 The Windows bootstrap may require PowerShell to be run as Administrator if it needs to install missing tools.
 
@@ -126,13 +127,13 @@ If `openai_model` is not set, the app currently defaults to `gpt-5.4-mini`.
 
 ### `ai` is not defined in PyMOL
 
-Rerun the installer. The startup loader or plugin install is missing.
+Rerun the installer. It should add a managed PyMOL AI Assistant startup block automatically.
 
 Typical plugin locations:
 
 - `~/.pymol/Plugins/pymol_ai_assistant`
-- `~/.pymol/startup/pymol_ai_assistant_startup.py`
-- macOS alternate startup path: `~/Library/Application Support/PyMOL/Startup`
+- macOS/Linux startup file: `~/.pymolrc`
+- Windows startup file: `%USERPROFILE%\pymolrc.pml`
 
 ### Bootstrap says PyMOL was not found
 
@@ -140,7 +141,16 @@ Install PyMOL first, confirm it launches normally, then rerun the bootstrap.
 
 ### Windows bootstrap says to rerun as Administrator
 
-Open PowerShell with `Run as Administrator` and rerun the bootstrap command.
+This means Windows needs permission to install missing tools.
+
+Do this:
+
+1. Close the current PowerShell window
+2. Open the Start menu
+3. Search for `PowerShell`
+4. Right-click `Windows PowerShell` or `PowerShell`
+5. Choose `Run as administrator`
+6. Rerun the bootstrap command
 
 ### Bootstrap says the repo directory already exists but is not a git repo
 
