@@ -292,12 +292,6 @@ const ToolBoxPanel: React.FC = () => {
       title: 'Focus & Navigation',
       functions: [
         {
-          key: 'show_sequence_view',
-          label: 'Sequence View',
-          desc: 'Toggle PyMOL’s built-in sequence bar and switch between common display formats.',
-          examples: ['Show sequence', 'Show sequence as residue names', 'Hide sequence'],
-        },
-        {
           key: 'zoom_selection',
           label: 'Zoom Target',
           desc: 'Center the camera on a target.',

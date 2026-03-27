@@ -102,7 +102,7 @@ const DEFAULTS = [
   'Show ligand as sticks',
   'Set surface transparency to 0.4 on protein',
   'Label residues in chain A',
-  'Show sequence as residue names',
+  'Zoom to ligand',
   'Measure distance between ligand and residue ASP in chain B',
   'Color protein by chain',
 ];

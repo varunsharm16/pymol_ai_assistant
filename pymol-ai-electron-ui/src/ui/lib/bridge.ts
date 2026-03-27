@@ -52,8 +52,21 @@ async function getBaseUrl(): Promise<string> {
     }
   }
 
-  // Fallback for development
-  _baseUrl = 'http://127.0.0.1:5179';
+  // Allow ?port= query param override for dev-in-browser
+  const params = new URLSearchParams(window.location.search);
+  const overridePort = params.get('port');
+  if (overridePort) {
+    _baseUrl = `http://127.0.0.1:${overridePort}`;
+    return _baseUrl;
+  }
+
+  // Fallback: not in Electron, port unknown — backend must be started manually
+  // Show a console warning so devs know what's happening
+  console.warn(
+    '[NexMol] No Electron IPC available. Backend port unknown.\n' +
+    'If running in browser, start the backend manually and add ?port=XXXXX to the URL.'
+  );
+  _baseUrl = 'http://127.0.0.1:8000';
   return _baseUrl;
 }
 
