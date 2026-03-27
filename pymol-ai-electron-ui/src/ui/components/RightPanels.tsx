@@ -1,19 +1,11 @@
 import React from 'react';
 import { useStore } from '../store';
 import { Button } from './Button';
-import { Copy, Save, FolderOpen, Plus } from 'lucide-react';
+import { Copy, Plus } from 'lucide-react';
 import SettingsPanel from './SettingsPanel';
 import HealthCheckPanel from './HealthCheckPanel';
 import MoleculePanel from './MoleculePanel';
-import { saveProject, getRecentProjects } from '../lib/bridge';
 import ConfirmDialog from './ConfirmDialog';
-import {
-  createBlankProjectFlow,
-  deleteProjectFlow,
-  isTerminalProjectActionError,
-  openProjectFlow,
-  switchProjectFlow,
-} from '../lib/projectSync';
 
 export const RightPanels: React.FC = () => {
   const panel = useStore((s) => s.ui.rightPanel);
@@ -54,17 +46,14 @@ const ProjectsPanel: React.FC = () => {
   const renameProject = useStore((s) => s.renameProject);
   const pendingRenameId = useStore((s) => s.pendingRenameId);
   const setPendingRename = useStore((s) => s.setPendingRename);
-  const logs = useStore((s) => s.logs);
   const addLog = useStore((s) => s.addLog);
-  const projectMolecules = useStore((s) => s.projectMolecules);
-  const recentProjects = useStore((s) => s.recentProjects);
-  const setRecentProjects = useStore((s) => s.setRecentProjects);
-  const switchingProject = useStore((s) => s.switchingProject);
+  const selectProject = useStore((s) => s.selectProject);
+  const createProject = useStore((s) => s.createProject);
+  const deleteProject = useStore((s) => s.deleteProject);
 
   const [hoverId, setHoverId] = React.useState<string | null>(null);
   const [menuId, setMenuId] = React.useState<string | null>(null);
   const [renameId, setRenameId] = React.useState<string | null>(null);
-  const [saving, setSaving] = React.useState(false);
   const [deleteId, setDeleteId] = React.useState<string | null>(null);
   const inputRef = React.useRef<HTMLInputElement>(null);
 
@@ -77,10 +66,6 @@ const ProjectsPanel: React.FC = () => {
     }
   }, [pendingRenameId, setPendingRename]);
 
-  React.useEffect(() => {
-    getRecentProjects().then(setRecentProjects).catch(() => {});
-  }, []);
-
   const onRename = (id: string) => {
     setRenameId(id);
     setMenuId(null);
@@ -92,113 +77,19 @@ const ProjectsPanel: React.FC = () => {
     setRenameId(null);
   };
 
-  const onSave = async () => {
-    if (!window.api?.showSaveDialog) return;
-    const proj = projects.find((p) => p.id === current);
-    const currentMolecule = projectMolecules[current] || {};
-    const res = await window.api.showSaveDialog({
-      title: 'Save Project',
-      defaultPath: `${proj?.name || 'project'}.pymolai`,
-      filters: [{ name: 'PyMOL AI Project', extensions: ['pymolai'] }],
-    });
-    if (!res || res.canceled || !res.filePath) return;
-
-    setSaving(true);
-    const projectLogs = logs[current] || [];
-    const result = await saveProject({
-      path: res.filePath,
-      name: proj?.name || 'Untitled',
-      commands: projectLogs.map((l) => ({ prompt: l.prompt, ts: l.ts, status: l.status })),
-      pdb_id: currentMolecule.pdbId,
-      molecule_path: currentMolecule.filePath,
-    });
-    setSaving(false);
-
-    if (result.ok) {
-      addLog({ prompt: 'Save project', status: 'success', message: `Saved to ${result.path}` });
-      getRecentProjects().then(setRecentProjects).catch(() => {});
-    } else {
-      addLog({ prompt: 'Save project', status: 'error', message: ('error' in result && result.error) || 'Failed' });
-    }
-  };
-
-  const onOpen = async (path?: string) => {
-    let filePath = path;
-    if (!filePath) {
-      if (!window.api?.showOpenDialog) return;
-      const res = await window.api.showOpenDialog({
-        title: 'Open Project',
-        filters: [{ name: 'PyMOL AI Project', extensions: ['pymolai'] }],
-        properties: ['openFile'],
-      });
-      if (!res || res.canceled || !res.filePaths?.length) return;
-      filePath = res.filePaths[0];
-    }
-    const result = await openProjectFlow(filePath!);
-    if (result.ok && result.metadata) {
-      addLog({ prompt: 'Load project', status: 'success', message: `Loaded: ${result.metadata.name}` });
-    } else if (isTerminalProjectActionError('error' in result ? result.error : undefined)) {
-      addLog({ prompt: 'Load project', status: 'error', message: ('error' in result && result.error) || 'Failed' });
-    }
-  };
-
   return (
     <div className="h-full flex flex-col bg-[#2A2A2A]">
       <SectionTitle>Projects</SectionTitle>
 
-      {/* Save / Open buttons */}
+      {/* New project button */}
       <div className="flex gap-2 px-3 py-2">
         <button
-          onClick={() => {
-            createBlankProjectFlow('New Project').then((result) => {
-              if (!result.ok && isTerminalProjectActionError('error' in result ? result.error : undefined)) {
-                addLog({
-                  prompt: 'Create project',
-                  status: 'error',
-                  message: ('error' in result && result.error) || 'Failed to create project',
-                });
-              }
-            });
-          }}
-          disabled={switchingProject}
-          className="h-8 rounded-full bg-neutral-700 hover:bg-neutral-600 px-3 text-sm flex items-center justify-center gap-1.5 disabled:opacity-40"
+          onClick={() => createProject('New Project')}
+          className="h-8 rounded-full bg-neutral-700 hover:bg-neutral-600 px-3 text-sm flex items-center justify-center gap-1.5"
         >
           <Plus className="w-3.5 h-3.5" /> New
         </button>
-        <button
-          onClick={onSave}
-          disabled={saving || switchingProject}
-          className="flex-1 h-8 rounded-full bg-brand hover:bg-brandHover text-black text-sm font-medium flex items-center justify-center gap-1.5 disabled:opacity-40"
-        >
-          <Save className="w-3.5 h-3.5" /> {saving ? 'Saving…' : 'Save'}
-        </button>
-        <button
-          onClick={() => onOpen()}
-          disabled={switchingProject}
-          className="flex-1 h-8 rounded-full bg-neutral-700 hover:bg-neutral-600 text-sm flex items-center justify-center gap-1.5"
-        >
-          <FolderOpen className="w-3.5 h-3.5" /> Open
-        </button>
       </div>
-
-      {/* Recent projects */}
-      {recentProjects.length > 0 && (
-        <div className="px-3 pb-2">
-          <div className="text-[11px] uppercase text-neutral-500 mb-1">Recent</div>
-          {recentProjects.slice(0, 5).map((r) => (
-            <button
-              key={r.path}
-              onClick={() => onOpen(r.path)}
-              className="w-full text-left text-sm px-2 py-1 rounded-lg hover:bg-neutral-900/60 truncate text-neutral-300"
-              title={r.path}
-            >
-              {r.name}
-            </button>
-          ))}
-        </div>
-      )}
-
-      <div className="h-px bg-neutral-700 mx-3" />
 
       {/* Project list */}
       <div className="p-2 flex-1 overflow-auto">
@@ -210,20 +101,10 @@ const ProjectsPanel: React.FC = () => {
               if (menuId !== p.id) setHoverId(null);
             }}
             className={`relative flex items-center justify-between px-3 py-2 rounded-3xl cursor-default
-              ${p.id === current ? 'bg-neutral-900' : 'hover:bg-neutral-900/60'} ${
-                switchingProject ? 'opacity-60' : ''
-              }`}
+              ${p.id === current ? 'bg-neutral-900' : 'hover:bg-neutral-900/60'}`}
             onClick={() => {
-              if (renameId === p.id || switchingProject) return;
-              switchProjectFlow(p.id).then((result) => {
-                if (!result.ok && isTerminalProjectActionError('error' in result ? result.error : undefined)) {
-                  addLog({
-                    prompt: 'Switch project',
-                    status: 'error',
-                    message: ('error' in result && result.error) || 'Failed to switch project',
-                  });
-                }
-              });
+              if (renameId === p.id) return;
+              selectProject(p.id);
             }}
           >
             <div className="truncate pr-2">
@@ -280,7 +161,7 @@ const ProjectsPanel: React.FC = () => {
       <ConfirmDialog
         open={deleteId !== null}
         title="Delete project?"
-        body="This removes the selected project and its local logs, notes, molecule badge, and in-memory session snapshot."
+        body="This removes the selected project and its local logs, notes, and molecule info."
         confirmLabel="Delete Project"
         destructive
         onCancel={() => setDeleteId(null)}
@@ -288,15 +169,8 @@ const ProjectsPanel: React.FC = () => {
           const id = deleteId;
           setDeleteId(null);
           if (!id) return;
-          deleteProjectFlow(id).then((result) => {
-            if (!result.ok && isTerminalProjectActionError('error' in result ? result.error : undefined)) {
-              addLog({
-                prompt: 'Delete project',
-                status: 'error',
-                message: ('error' in result && result.error) || 'Failed to delete project',
-              });
-            }
-          });
+          deleteProject(id);
+          addLog({ prompt: 'Delete project', status: 'success', message: 'Project deleted.' });
         }}
       />
     </div>
@@ -544,19 +418,14 @@ const HelpPanel: React.FC = () => (
     <div className="p-4 space-y-3 text-sm">
       <div className="rounded-xl bg-neutral-900 p-3 text-neutral-300">
         One action per prompt. Supported targets include protein, ligand, water, metals, hydrogens,
-        chain, residue, object, current selection, and all atoms.
+        chain, residue, and all atoms.
       </div>
       <div className="rounded-xl bg-neutral-900 p-3 text-neutral-300">
         Supported representations: cartoon, sticks, surface, spheres, lines, mesh, and dots.
       </div>
       <div className="rounded-xl bg-neutral-900 p-3 text-neutral-300">
-        The current PyMOL selection appears as a tag above the prompt box. Click it to insert a reference like
-        <span className="mx-1 rounded bg-black/40 px-1 py-0.5 text-brand">@A:ALA21</span>
-        into your prompt.
-      </div>
-      <div className="rounded-xl bg-neutral-900 p-3 text-neutral-300">
-        Built-in sequence view is available through prompts like <span className="text-neutral-100">Show sequence</span> or
-        <span className="text-neutral-100"> Show sequence as residue names</span>.
+        Load a structure using the Molecules panel (PDB fetch or local file import),
+        then use natural language to control the 3D viewer.
       </div>
       <a
         className="block px-3 py-2 rounded-xl hover:bg-[#1F1F1F]"

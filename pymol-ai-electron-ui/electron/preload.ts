@@ -18,6 +18,9 @@ const api = Object.freeze({
   writeFile: (opts: { path: string; dataBase64: string }) =>
     ipcRenderer.invoke('write-file', opts) as Promise<{ ok: boolean }>,
 
+  // Backend discovery
+  getBackendPort: () => ipcRenderer.invoke('get-backend-port') as Promise<number | null>,
+
   // Version checks for health panel
   getNodeVersion: () => ipcRenderer.invoke('get-node-version') as Promise<string>,
   getPythonVersion: () =>

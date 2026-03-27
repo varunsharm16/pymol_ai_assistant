@@ -10,6 +10,7 @@ const TopBar: React.FC = () => {
     <div className="app-drag px-3 pt-6 select-none">
       {/* Title row */}
       <div className="flex items-center">
+        <div className="text-xs font-bold uppercase tracking-widest text-brand mr-3 app-no-drag">NexMol</div>
         <div className="text-xl font-semibold tracking-tight truncate">
           {project?.name ?? 'New Project'}
         </div>
@@ -19,7 +20,7 @@ const TopBar: React.FC = () => {
         {/* Version badge */}
         <div className="app-no-drag flex items-center gap-3">
           <span className="text-xs text-neutral-500 rounded-full border border-neutral-700 px-2.5 py-1">
-            v0.1.0-alpha
+            v0.2.0-alpha
           </span>
         </div>
       </div>

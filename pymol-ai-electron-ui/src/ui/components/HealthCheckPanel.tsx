@@ -5,8 +5,7 @@ import { CheckCircle, XCircle, Loader2, RefreshCw } from 'lucide-react';
 
 function makeChecks(): HealthCheck[] {
   return [
-    { label: 'Bridge server reachable', status: 'idle', message: '', fix: 'Run the installer script or start the bridge manually.' },
-    { label: 'PyMOL plugin connected', status: 'idle', message: '', fix: 'Open PyMOL and type "ai" in the command line.' },
+    { label: 'Backend server reachable', status: 'idle', message: '', fix: 'The NexMol backend should start automatically. Try restarting the app.' },
     { label: 'API key valid', status: 'idle', message: '', fix: 'Go to Settings and enter a valid OpenAI API key.' },
     { label: 'Node.js ≥ 18', status: 'idle', message: '', fix: 'Install Node.js 18+ from https://nodejs.org' },
     { label: 'Python ≥ 3.8', status: 'idle', message: '', fix: 'Install Python 3.8+ from https://python.org' },
@@ -33,53 +32,47 @@ const HealthCheckPanel: React.FC = () => {
     const fresh = makeChecks();
     setChecks(fresh.map((c) => ({ ...c, status: 'pending' })));
 
-    // 1) Bridge
+    // 1) Backend
     update(0, { status: 'pending', message: 'Checking…' });
     const health = await checkHealth();
     if (health.ok) {
       update(0, { status: 'pass', message: `v${health.version}` });
-      // 2) Plugin (from health response)
-      update(1, {
-        status: health.pluginConnected ? 'pass' : 'fail',
-        message: health.pluginConnected ? 'Connected' : 'Not connected',
-      });
     } else {
       update(0, { status: 'fail', message: health.error || 'Unreachable' });
-      update(1, { status: 'fail', message: 'Cannot check — bridge is down' });
     }
 
-    // 3) API Key
-    update(2, { status: 'pending', message: 'Validating…' });
+    // 2) API Key
+    update(1, { status: 'pending', message: 'Validating…' });
     const keyRes = await validateApiKey();
-    update(2, {
+    update(1, {
       status: keyRes.ok ? 'pass' : 'fail',
       message: keyRes.ok ? 'Valid' : keyRes.error || 'Not configured',
     });
 
-    // 4) Node.js
-    update(3, { status: 'pending', message: 'Checking…' });
+    // 3) Node.js
+    update(2, { status: 'pending', message: 'Checking…' });
     try {
       const nodeVer = await window.api?.getNodeVersion?.() || '';
       const ok = nodeVer && semverGte(nodeVer, 18);
-      update(3, {
+      update(2, {
         status: ok ? 'pass' : 'fail',
         message: nodeVer ? `v${nodeVer}` : 'Not found',
       });
     } catch {
-      update(3, { status: 'fail', message: 'Check failed' });
+      update(2, { status: 'fail', message: 'Check failed' });
     }
 
-    // 5) Python
-    update(4, { status: 'pending', message: 'Checking…' });
+    // 4) Python
+    update(3, { status: 'pending', message: 'Checking…' });
     try {
       const pyVer = await window.api?.getPythonVersion?.() || '';
       const ok = pyVer && pyVer !== 'not found' && semverGte(pyVer, 3, 8);
-      update(4, {
+      update(3, {
         status: ok ? 'pass' : 'fail',
         message: pyVer && pyVer !== 'not found' ? `v${pyVer}` : 'Not found',
       });
     } catch {
-      update(4, { status: 'fail', message: 'Check failed' });
+      update(3, { status: 'fail', message: 'Check failed' });
     }
 
     setRunning(false);

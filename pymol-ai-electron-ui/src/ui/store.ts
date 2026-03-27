@@ -34,14 +34,6 @@ export type MoleculeInfo = {
   name?: string;
 };
 
-export type CurrentSelectionTag = {
-  label: string;
-  description: string;
-  count: number;
-  source: string;
-  target: Record<string, any>;
-};
-
 type Right =
   | 'none'
   | 'projects'
@@ -58,8 +50,6 @@ type State = {
   logs: Record<string, LogEntry[]>;
   notes: Record<string, string>;
   projectMolecules: Record<string, MoleculeInfo>;
-  projectSessions: Record<string, string | null>;
-  projectSessionDirty: Record<string, boolean>;
   draft: string;
   ui: { rightPanel: Right; quickActionsExpanded: boolean };
 
@@ -67,7 +57,6 @@ type State = {
   showApiKeyModal: boolean;
   healthChecks: HealthCheck[];
   recentProjects: RecentProject[];
-  currentSelection: CurrentSelectionTag | null;
 
   pendingRenameId?: string | null;
   switchingProject: boolean;
@@ -92,9 +81,6 @@ type State = {
   setShowApiKeyModal: (v: boolean) => void;
   setHealthChecks: (checks: HealthCheck[]) => void;
   setRecentProjects: (p: RecentProject[]) => void;
-  setProjectSession: (projectId: string, data: string | null) => void;
-  setProjectSessionDirty: (projectId: string, dirty: boolean) => void;
-  setCurrentProjectSessionDirty: (dirty: boolean) => void;
   setProjectMolecule: (projectId: string, molecule: MoleculeInfo) => void;
   setCurrentProjectMolecule: (molecule: MoleculeInfo) => void;
   hydrateProjectFromLoadedFile: (opts: {
@@ -103,11 +89,9 @@ type State = {
     logs?: Array<Partial<LogEntry>>;
     notes?: string;
     molecule?: MoleculeInfo;
-    sessionData?: string | null;
   }) => string;
   setSwitchingProject: (value: boolean) => void;
   resetWorkspace: (name?: string) => string;
-  setCurrentSelection: (selection: CurrentSelectionTag | null) => void;
 };
 
 const uid = () => Math.random().toString(36).slice(2);
@@ -130,8 +114,6 @@ function createWorkspaceState(name = 'New Project') {
     logs: { [project.id]: [] as LogEntry[] },
     notes: { [project.id]: '' },
     projectMolecules: { [project.id]: {} as MoleculeInfo },
-    projectSessions: { [project.id]: null as string | null },
-    projectSessionDirty: { [project.id]: false },
   };
 }
 
@@ -143,8 +125,6 @@ export const useStore = create<State>((set, get) => ({
   logs: initialWorkspace.logs,
   notes: initialWorkspace.notes,
   projectMolecules: initialWorkspace.projectMolecules,
-  projectSessions: initialWorkspace.projectSessions,
-  projectSessionDirty: initialWorkspace.projectSessionDirty,
   draft: '',
   ui: { rightPanel: 'none', quickActionsExpanded: false },
 
@@ -152,7 +132,6 @@ export const useStore = create<State>((set, get) => ({
   showApiKeyModal: false,
   healthChecks: [],
   recentProjects: [],
-  currentSelection: null,
 
   pendingRenameId: null,
   switchingProject: false,
@@ -191,8 +170,6 @@ export const useStore = create<State>((set, get) => ({
       logs: { ...s.logs, [p.id]: [] },
       notes: { ...s.notes, [p.id]: '' },
       projectMolecules: { ...s.projectMolecules, [p.id]: {} },
-      projectSessions: { ...s.projectSessions, [p.id]: null },
-      projectSessionDirty: { ...s.projectSessionDirty, [p.id]: false },
       pendingRenameId: p.id,
     }));
     return p.id;
@@ -204,12 +181,6 @@ export const useStore = create<State>((set, get) => ({
       notes: Object.fromEntries(Object.entries(s.notes).filter(([key]) => key !== id)),
       projectMolecules: Object.fromEntries(
         Object.entries(s.projectMolecules).filter(([key]) => key !== id)
-      ),
-      projectSessions: Object.fromEntries(
-        Object.entries(s.projectSessions).filter(([key]) => key !== id)
-      ),
-      projectSessionDirty: Object.fromEntries(
-        Object.entries(s.projectSessionDirty).filter(([key]) => key !== id)
       ),
     })),
   addLog: (entry) => get().addLogToProject(get().currentProjectId, entry),
@@ -247,20 +218,6 @@ export const useStore = create<State>((set, get) => ({
   setShowApiKeyModal: (v) => set({ showApiKeyModal: v }),
   setHealthChecks: (checks) => set({ healthChecks: checks }),
   setRecentProjects: (p) => set({ recentProjects: p }),
-  setCurrentSelection: (selection) => set({ currentSelection: selection }),
-  setProjectSession: (projectId, data) =>
-    set((s) => ({
-      projectSessions: { ...s.projectSessions, [projectId]: data },
-      projectSessionDirty: { ...s.projectSessionDirty, [projectId]: false },
-    })),
-  setProjectSessionDirty: (projectId, dirty) =>
-    set((s) => ({
-      projectSessionDirty: { ...s.projectSessionDirty, [projectId]: dirty },
-    })),
-  setCurrentProjectSessionDirty: (dirty) => {
-    const projectId = get().currentProjectId;
-    get().setProjectSessionDirty(projectId, dirty);
-  },
   setProjectMolecule: (projectId, molecule) =>
     set((s) => ({
       projectMolecules: { ...s.projectMolecules, [projectId]: molecule },
@@ -269,7 +226,7 @@ export const useStore = create<State>((set, get) => ({
     const projectId = get().currentProjectId;
     get().setProjectMolecule(projectId, molecule);
   },
-  hydrateProjectFromLoadedFile: ({ id, name, logs, notes, molecule, sessionData }) => {
+  hydrateProjectFromLoadedFile: ({ id, name, logs, notes, molecule }) => {
     const projectId = id || uid();
     const project: Project = {
       id: projectId,
@@ -294,8 +251,6 @@ export const useStore = create<State>((set, get) => ({
       },
       notes: { ...s.notes, [projectId]: notes || '' },
       projectMolecules: { ...s.projectMolecules, [projectId]: molecule || {} },
-      projectSessions: { ...s.projectSessions, [projectId]: sessionData || null },
-      projectSessionDirty: { ...s.projectSessionDirty, [projectId]: false },
     }));
     return projectId;
   },
@@ -308,11 +263,8 @@ export const useStore = create<State>((set, get) => ({
       logs: workspace.logs,
       notes: workspace.notes,
       projectMolecules: workspace.projectMolecules,
-      projectSessions: workspace.projectSessions,
-      projectSessionDirty: workspace.projectSessionDirty,
       pendingRenameId: null,
       switchingProject: false,
-      currentSelection: null,
       draft: '',
       ui: { ...s.ui, rightPanel: 'none' },
     }));

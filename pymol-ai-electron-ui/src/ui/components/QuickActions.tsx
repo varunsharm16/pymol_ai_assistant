@@ -16,9 +16,6 @@ const PROMPTS: string[] = [
   'Hide everything except ligand',
   'Zoom to ligand',
   'Orient on chain B',
-  'Show sequence',
-  'Show sequence as residue names',
-  'Hide sequence',
 
   // --- Colors / selections ---
   'Color ALA green',
@@ -76,9 +73,6 @@ const PROMPTS: string[] = [
 
   // --- Analysis ---
   'Measure distance between ligand and residue ASP in chain B',
-  'Show polar contacts between ligand and residue ASP in chain B',
-  'Align object ligand_pose to object receptor',
-  'Color @A:ALA21 red',
 
   // --- Snapshot / export ---
   'Save a PNG snapshot named test.png',

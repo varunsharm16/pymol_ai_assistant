@@ -1,13 +1,5 @@
-const BASE = 'http://127.0.0.1:5179';
+let _baseUrl: string | null = null;
 const MAX_RETRIES = 5;
-
-export type CurrentSelectionTag = {
-  label: string;
-  description: string;
-  count: number;
-  source: string;
-  target: Record<string, any>;
-};
 
 export type BridgeProgress = {
   phase: 'sending' | 'retrying' | 'waiting' | 'success' | 'error';
@@ -21,31 +13,6 @@ type BridgeResult<T = any> = {
   error?: string;
   status?: number;
 };
-
-function describeBridgeFailure(path: string, res: BridgeResult<any>) {
-  const raw = res.error || 'Bridge request failed.';
-
-  if (res.status === 504 || /timeout/i.test(raw)) {
-    if (path === '/session/capture') {
-      return 'Session capture stalled in PyMOL. It may still finish, but this project action could not confirm it.';
-    }
-    return 'PyMOL did not acknowledge this request in time. It may still be running in PyMOL.';
-  }
-
-  if (res.status === 503) {
-    return 'No PyMOL plugin connected.';
-  }
-
-  if (res.status === 404) {
-    return raw;
-  }
-
-  if (res.status === 500) {
-    return raw || 'PyMOL reported an execution error.';
-  }
-
-  return raw;
-}
 
 declare global {
   interface Window {
@@ -62,18 +29,45 @@ declare global {
         properties?: string[];
       }) => Promise<{ canceled: boolean; filePaths?: string[] }>;
       writeFile: (opts: { path: string; dataBase64: string }) => Promise<{ ok: boolean }>;
+      getBackendPort: () => Promise<number | null>;
       getNodeVersion: () => Promise<string>;
       getPythonVersion: () => Promise<string>;
     };
   }
 }
 
+// ---------------------------------------------------------------------------
+// Base URL discovery
+// ---------------------------------------------------------------------------
+
+async function getBaseUrl(): Promise<string> {
+  if (_baseUrl) return _baseUrl;
+
+  // Try to get port from Electron IPC
+  if (window.api?.getBackendPort) {
+    const port = await window.api.getBackendPort();
+    if (port) {
+      _baseUrl = `http://127.0.0.1:${port}`;
+      return _baseUrl;
+    }
+  }
+
+  // Fallback for development
+  _baseUrl = 'http://127.0.0.1:5179';
+  return _baseUrl;
+}
+
+// ---------------------------------------------------------------------------
+// Core fetch helpers
+// ---------------------------------------------------------------------------
+
 async function apiFetch<T = any>(
   path: string,
   opts: RequestInit = {}
 ): Promise<BridgeResult<T>> {
   try {
-    const res = await fetch(`${BASE}${path}`, {
+    const base = await getBaseUrl();
+    const res = await fetch(`${base}${path}`, {
       headers: { 'Content-Type': 'application/json' },
       ...opts,
     });
@@ -87,7 +81,7 @@ async function apiFetch<T = any>(
     }
     return { ok: true, data: body as T, status: res.status };
   } catch (e: any) {
-    return { ok: false, error: e?.message || 'Bridge unreachable' };
+    return { ok: false, error: e?.message || 'Backend unreachable' };
   }
 }
 
@@ -112,8 +106,8 @@ async function requestWithRetry<T = any>(
       attempt,
       message:
         attempt === 1
-          ? 'Sending to bridge…'
-          : `Retrying bridge request (attempt ${attempt}/${MAX_RETRIES})…`,
+          ? 'Sending request…'
+          : `Retrying (attempt ${attempt}/${MAX_RETRIES})…`,
     });
 
     const res = await apiFetch<T>(path, opts);
@@ -121,18 +115,14 @@ async function requestWithRetry<T = any>(
       onProgress?.({
         phase: 'success',
         attempt,
-        message: 'PyMOL acknowledged the request.',
+        message: 'Request completed.',
       });
       return res;
     }
 
     if (!isRetryable(res) || attempt === MAX_RETRIES) {
-      const message = describeBridgeFailure(path, res);
-      onProgress?.({
-        phase: 'error',
-        attempt,
-        message,
-      });
+      const message = res.error || 'Request failed.';
+      onProgress?.({ phase: 'error', attempt, message });
       return { ...res, error: message };
     }
 
@@ -140,9 +130,7 @@ async function requestWithRetry<T = any>(
     onProgress?.({
       phase: 'waiting',
       attempt,
-      message: `${res.error || 'Bridge unavailable'} Retrying in ${Math.round(
-        backoff / 1000
-      )}s…`,
+      message: `${res.error || 'Backend unavailable'} Retrying in ${Math.round(backoff / 1000)}s…`,
     });
     await delay(backoff);
     attempt += 1;
@@ -151,46 +139,72 @@ async function requestWithRetry<T = any>(
   return { ok: false, error: 'Max retries exceeded' };
 }
 
-export async function sendCommand(
-  spec: any,
-  onProgress?: (update: BridgeProgress) => void
-): Promise<{ ok: boolean; error?: string; status?: number }> {
-  const res = await requestWithRetry('/command', {
-    method: 'POST',
-    body: JSON.stringify(spec),
-  }, onProgress);
-  return { ok: res.ok, error: res.error, status: res.status };
-}
+// ---------------------------------------------------------------------------
+// Natural Language → Command Spec
+// ---------------------------------------------------------------------------
 
 export async function sendNL(
   text: string,
   onProgress?: (update: BridgeProgress) => void
-): Promise<{ ok: boolean; error?: string; status?: number }> {
-  const res = await requestWithRetry('/nl', {
+): Promise<{ ok: boolean; spec?: any; error?: string }> {
+  const res = await requestWithRetry<{ ok: boolean; spec: any }>('/nl', {
     method: 'POST',
     body: JSON.stringify({ text }),
   }, onProgress);
-  return { ok: res.ok, error: res.error, status: res.status };
-}
 
-export async function snapshotWithPicker(
-  defaultName?: string,
-  onProgress?: (update: BridgeProgress) => void
-): Promise<{ ok: boolean; error?: string; canceled?: boolean }> {
-  if (!window.api?.showSaveDialog) {
-    return { ok: false, error: 'Native dialog unavailable' };
+  if (res.ok && res.data?.spec) {
+    return { ok: true, spec: res.data.spec };
   }
-  const res = await window.api.showSaveDialog({
-    title: 'Save Snapshot',
-    defaultPath: defaultName?.trim() || 'snapshot.png',
-    filters: [{ name: 'PNG Image', extensions: ['png'] }],
-  });
-  if (!res || res.canceled || !res.filePath) return { ok: false, canceled: true };
-
-  let path = res.filePath;
-  if (!path.toLowerCase().endsWith('.png')) path += '.png';
-  return sendCommand({ name: 'snapshot', arguments: { filename: path } }, onProgress);
+  return { ok: false, error: res.error || (res.data as any)?.error };
 }
+
+// ---------------------------------------------------------------------------
+// Structure data
+// ---------------------------------------------------------------------------
+
+export async function fetchStructureData(
+  pdbId: string,
+  onProgress?: (update: BridgeProgress) => void
+): Promise<{ ok: boolean; data?: string; format?: string; pdb_id?: string; error?: string }> {
+  const res = await requestWithRetry<{
+    ok: boolean;
+    data: string;
+    format: string;
+    pdb_id: string;
+  }>('/structures/fetch-data', {
+    method: 'POST',
+    body: JSON.stringify({ pdb_id: pdbId }),
+  }, onProgress);
+
+  if (res.ok && res.data) {
+    return { ok: true, data: res.data.data, format: res.data.format, pdb_id: res.data.pdb_id };
+  }
+  return { ok: false, error: res.error };
+}
+
+export async function readStructureFile(
+  filePath: string,
+  onProgress?: (update: BridgeProgress) => void
+): Promise<{ ok: boolean; data?: string; format?: string; name?: string; error?: string }> {
+  const res = await requestWithRetry<{
+    ok: boolean;
+    data: string;
+    format: string;
+    name: string;
+  }>('/structures/read-file', {
+    method: 'POST',
+    body: JSON.stringify({ file_path: filePath }),
+  }, onProgress);
+
+  if (res.ok && res.data) {
+    return { ok: true, data: res.data.data, format: res.data.format, name: res.data.name };
+  }
+  return { ok: false, error: res.error };
+}
+
+// ---------------------------------------------------------------------------
+// API Key
+// ---------------------------------------------------------------------------
 
 export async function checkApiKey(): Promise<boolean> {
   const res = await apiFetch<{ configured: boolean }>('/api-key');
@@ -221,38 +235,29 @@ export async function validateApiKey(
   return { ok: false, error: res.error || res.data?.error };
 }
 
+// ---------------------------------------------------------------------------
+// Health
+// ---------------------------------------------------------------------------
+
 export async function checkHealth(): Promise<{
   ok: boolean;
   version?: string;
-  pluginConnected?: boolean;
   error?: string;
 }> {
   const res = await apiFetch<{
     status: string;
     version: string;
-    plugin_connected: boolean;
+    uptime_seconds: number;
   }>('/health');
   if (res.ok && res.data) {
-    return {
-      ok: true,
-      version: res.data.version,
-      pluginConnected: res.data.plugin_connected,
-    };
+    return { ok: true, version: res.data.version };
   }
   return { ok: false, error: res.error };
 }
 
-export async function getCurrentSelection(): Promise<{
-  ok: boolean;
-  selection?: CurrentSelectionTag | null;
-  error?: string;
-}> {
-  const res = await apiFetch<{ ok: boolean; selection: CurrentSelectionTag | null }>('/selection/current');
-  if (res.ok) {
-    return { ok: true, selection: res.data?.selection ?? null };
-  }
-  return { ok: false, error: res.error };
-}
+// ---------------------------------------------------------------------------
+// PDB Info (metadata lookup)
+// ---------------------------------------------------------------------------
 
 export async function getPdbInfo(pdbId: string): Promise<{
   ok: boolean;
@@ -273,110 +278,9 @@ export async function getPdbInfo(pdbId: string): Promise<{
   return { ok: false, error: res.error };
 }
 
-export async function fetchPdb(
-  pdbId: string,
-  onProgress?: (update: BridgeProgress) => void
-): Promise<{ ok: boolean; error?: string; status?: number }> {
-  const res = await requestWithRetry('/fetch-pdb', {
-    method: 'POST',
-    body: JSON.stringify({ pdb_id: pdbId }),
-  }, onProgress);
-  return { ok: res.ok, error: res.error, status: res.status };
-}
-
-export async function importFile(
-  filePath: string,
-  onProgress?: (update: BridgeProgress) => void
-): Promise<{ ok: boolean; error?: string; status?: number }> {
-  const res = await requestWithRetry('/import-file', {
-    method: 'POST',
-    body: JSON.stringify({ file_path: filePath }),
-  }, onProgress);
-  return { ok: res.ok, error: res.error, status: res.status };
-}
-
-export async function captureSession(): Promise<{
-  ok: boolean;
-  data?: string;
-  error?: string;
-}> {
-  const res = await apiFetch<{ ok: boolean; data: string }>('/session/capture', {
-    method: 'POST',
-    body: JSON.stringify({}),
-  });
-  return {
-    ok: res.ok,
-    data: res.data?.data,
-    error: res.ok ? undefined : describeBridgeFailure('/session/capture', res),
-  };
-}
-
-export async function restoreSession(data: string): Promise<{ ok: boolean; error?: string }> {
-  const res = await apiFetch('/session/restore', {
-    method: 'POST',
-    body: JSON.stringify({ data }),
-  });
-  return {
-    ok: res.ok,
-    error: res.ok ? undefined : describeBridgeFailure('/session/restore', res),
-  };
-}
-
-export async function clearSession(): Promise<{ ok: boolean; error?: string }> {
-  const res = await apiFetch('/session/clear', {
-    method: 'POST',
-    body: JSON.stringify({}),
-  });
-  return {
-    ok: res.ok,
-    error: res.ok ? undefined : describeBridgeFailure('/session/clear', res),
-  };
-}
-
-export async function saveProject(opts: {
-  path: string;
-  name: string;
-  commands: any[];
-  pdb_id?: string;
-  molecule_path?: string;
-}): Promise<{ ok: boolean; path?: string; error?: string }> {
-  const res = await apiFetch<{ ok: boolean; path: string }>('/project/save', {
-    method: 'POST',
-    body: JSON.stringify(opts),
-  });
-  if (res.ok && res.data) return { ok: true, path: res.data.path };
-  return { ok: false, error: res.error };
-}
-
-export async function loadProject(
-  path: string
-): Promise<{ ok: boolean; metadata?: any; sessionData?: string; error?: string }> {
-  const res = await apiFetch<{ ok: boolean; metadata: any; session_data: string }>(
-    '/project/load',
-    {
-      method: 'POST',
-      body: JSON.stringify({ path }),
-    }
-  );
-  if (res.ok && res.data) {
-    return {
-      ok: true,
-      metadata: res.data.metadata,
-      sessionData: res.data.session_data,
-    };
-  }
-  return { ok: false, error: res.error };
-}
-
-export async function getRecentProjects(): Promise<
-  Array<{ name: string; path: string; saved_at: string }>
-> {
-  const res = await apiFetch<{
-    ok: boolean;
-    projects: Array<{ name: string; path: string; saved_at: string }>;
-  }>('/projects/recent');
-  return res.data?.projects ?? [];
-}
+// ---------------------------------------------------------------------------
+// File operations (Electron native)
+// ---------------------------------------------------------------------------
 
 export async function writeFile(
   path: string,

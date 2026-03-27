@@ -4,17 +4,18 @@ import { PromptLog } from './components/PromptLog';
 import { PromptInput } from './components/PromptInput';
 import { QuickActions } from './components/QuickActions';
 import { RightPanels } from './components/RightPanels';
+import MoleculeViewer, { MoleculeViewerHandle } from './components/MoleculeViewer';
 import { useStore } from './store';
 import { Button } from './components/Button';
-import { Plus, Settings, Activity, Atom } from 'lucide-react';
+import { Plus, Settings, Activity, Atom, MessageSquare, Box } from 'lucide-react';
 import ApiKeyModal from './components/ApiKeyModal';
 import OnboardingModal from './components/OnboardingModal';
-import { checkApiKey, getCurrentSelection } from './lib/bridge';
-import {
-  createBlankProjectFlow,
-  isTerminalProjectActionError,
-  startFreshWorkspaceFlow,
-} from './lib/projectSync';
+import { checkApiKey } from './lib/bridge';
+
+// Global viewer ref accessible by other modules
+export let globalViewerRef: React.RefObject<MoleculeViewerHandle | null> = React.createRef();
+
+type BottomTab = 'chat' | 'viewer';
 
 const Toolbar: React.FC = () => {
   const setPanel = useStore((s) => s.setRightPanel);
@@ -33,39 +34,15 @@ const Toolbar: React.FC = () => {
 
   return (
     <div className="px-3 py-1.5 flex flex-wrap gap-2 bg-neutral-900/50 backdrop-blur-sm app-drag relative z-40">
-      <button
-        onClick={() => {
-          createBlankProjectFlow('New Project').then((result) => {
-            if (!result.ok && isTerminalProjectActionError('error' in result ? result.error : undefined)) {
-              addLog({
-                prompt: 'Create project',
-                status: 'error',
-                message: ('error' in result && result.error) || 'Failed to create project',
-              });
-              return;
-            }
-            forcePanel('projects');
-          });
-        }}
-        className="app-no-drag w-8 h-8 rounded-full bg-brand hover:bg-brandHover text-black flex items-center justify-center"
-        title="New Project"
-        aria-label="New Project"
-      >
-        <Plus className="w-4 h-4" strokeWidth={2.25} />
-      </button>
-
-      <Button size="sm" onClick={() => setPanel('projects')} className="app-no-drag">
-        Projects
+      <Button size="sm" onClick={() => setPanel('molecules')} className="app-no-drag">
+        <Atom className="w-3.5 h-3.5 mr-1" />
+        Molecules
       </Button>
       <Button size="sm" onClick={() => setPanel('notepad')} className="app-no-drag">
         Note Pad
       </Button>
       <Button size="sm" onClick={() => setPanel('toolbox')} className="app-no-drag">
         Tool Box
-      </Button>
-      <Button size="sm" onClick={() => setPanel('molecules')} className="app-no-drag">
-        <Atom className="w-3.5 h-3.5 mr-1" />
-        Molecules
       </Button>
 
       <div className="relative app-no-drag" ref={helpRef} onPointerDown={(e) => e.stopPropagation()}>
@@ -130,10 +107,16 @@ const App: React.FC = () => {
   const showApiKeyModal = useStore((s) => s.showApiKeyModal);
   const setShowApiKeyModal = useStore((s) => s.setShowApiKeyModal);
   const setApiKeyConfigured = useStore((s) => s.setApiKeyConfigured);
-  const setCurrentSelection = useStore((s) => s.setCurrentSelection);
   const forceRightPanel = useStore((s) => s.forceRightPanel);
   const [showOnboarding, setShowOnboarding] = React.useState(false);
-  const onboardingKey = 'pymol_ai_assistant_onboarding_complete';
+  const [bottomTab, setBottomTab] = React.useState<BottomTab>('viewer');
+  const onboardingKey = 'nexmol_onboarding_complete';
+
+  const viewerRef = React.useRef<MoleculeViewerHandle>(null);
+  // Expose globally so PromptInput and other components can access it
+  React.useEffect(() => {
+    (globalViewerRef as any).current = viewerRef.current;
+  });
 
   // Check API key on mount
   React.useEffect(() => {
@@ -141,19 +124,7 @@ const App: React.FC = () => {
       setApiKeyConfigured(configured);
       if (!configured) setShowApiKeyModal(true);
     }).catch(() => {
-      // Bridge not running yet — don't show modal
-    });
-  }, []);
-
-  React.useEffect(() => {
-    startFreshWorkspaceFlow().then((result) => {
-      if (!result.ok) {
-        useStore.getState().addLog({
-          prompt: 'Initialize workspace',
-          status: 'error',
-          message: result.error || 'Failed to initialize blank workspace.',
-        });
-      }
+      // Backend not running yet — don't show modal
     });
   }, []);
 
@@ -167,31 +138,6 @@ const App: React.FC = () => {
     }
   }, []);
 
-  React.useEffect(() => {
-    let cancelled = false;
-    let timeoutId: number | null = null;
-
-    const poll = async () => {
-      if (document.hidden) {
-        timeoutId = window.setTimeout(poll, 1500);
-        return;
-      }
-      const res = await getCurrentSelection().catch(() => ({ ok: false as const }));
-      if (!cancelled) {
-        setCurrentSelection(res.ok ? res.selection || null : null);
-        timeoutId = window.setTimeout(poll, 1200);
-      }
-    };
-
-    poll();
-    return () => {
-      cancelled = true;
-      if (timeoutId !== null) {
-        window.clearTimeout(timeoutId);
-      }
-    };
-  }, [setCurrentSelection]);
-
   return (
     <div
       className="h-screen w-screen flex flex-col"
@@ -200,8 +146,52 @@ const App: React.FC = () => {
       <TopBar />
       <Toolbar />
       <div className="flex-1 flex overflow-hidden border-t border-neutral-800">
-        <div className="min-w-0 flex-1">
-          <PromptLog />
+        {/* Main content: viewer + chat */}
+        <div className="min-w-0 flex-1 flex flex-col">
+          {/* Tab bar */}
+          <div className="flex items-center bg-neutral-900/60 border-b border-neutral-800 px-2">
+            <button
+              onClick={() => setBottomTab('viewer')}
+              className={`flex items-center gap-1.5 px-3 py-2 text-sm font-medium border-b-2 transition-colors ${
+                bottomTab === 'viewer'
+                  ? 'border-brand text-brand'
+                  : 'border-transparent text-neutral-400 hover:text-neutral-200'
+              }`}
+            >
+              <Box className="w-3.5 h-3.5" />
+              Viewer
+            </button>
+            <button
+              onClick={() => setBottomTab('chat')}
+              className={`flex items-center gap-1.5 px-3 py-2 text-sm font-medium border-b-2 transition-colors ${
+                bottomTab === 'chat'
+                  ? 'border-brand text-brand'
+                  : 'border-transparent text-neutral-400 hover:text-neutral-200'
+              }`}
+            >
+              <MessageSquare className="w-3.5 h-3.5" />
+              Chat Log
+            </button>
+          </div>
+
+          {/* Content area */}
+          <div className="flex-1 relative overflow-hidden">
+            {/* Viewer always mounted for state persistence, hidden when not active */}
+            <div
+              className="absolute inset-0"
+              style={{ display: bottomTab === 'viewer' ? 'block' : 'none' }}
+            >
+              <MoleculeViewer ref={viewerRef} className="w-full h-full" />
+            </div>
+            <div
+              className="absolute inset-0 overflow-auto"
+              style={{ display: bottomTab === 'chat' ? 'block' : 'none' }}
+            >
+              <PromptLog />
+            </div>
+          </div>
+
+          {/* Prompt input always visible */}
           <PromptInput />
           <QuickActions />
         </div>

@@ -1,11 +1,8 @@
 import React from 'react';
 import { useStore } from '../store';
-import { getPdbInfo, fetchPdb, importFile } from '../lib/bridge';
+import { getPdbInfo, fetchStructureData, readStructureFile } from '../lib/bridge';
+import { globalViewerRef } from '../App';
 import { Search, Upload, Loader2, CheckCircle, XCircle, Atom } from 'lucide-react';
-import {
-  markCurrentProjectSessionDirty,
-  refreshCurrentProjectSessionCache,
-} from '../lib/projectSync';
 
 type Tab = 'fetch' | 'import';
 
@@ -26,11 +23,6 @@ const MoleculePanel: React.FC = () => {
   // Import state
   const [importStatus, setImportStatus] = React.useState<'idle' | 'loading' | 'loaded' | 'error'>('idle');
   const [importMsg, setImportMsg] = React.useState('');
-
-  const refreshSessionCache = React.useCallback(() => {
-    markCurrentProjectSessionDirty();
-    void refreshCurrentProjectSessionCache();
-  }, []);
 
   const handlePreview = async () => {
     if (!pdbId.trim()) return;
@@ -78,24 +70,30 @@ const MoleculePanel: React.FC = () => {
     const logId = addLog({
       prompt: `Fetch PDB: ${normalizedId}`,
       status: 'pending',
-      message: 'Sending fetch request…',
+      message: 'Downloading structure data…',
     });
-    const res = await fetchPdb(normalizedId, (progress) => {
+
+    const res = await fetchStructureData(normalizedId, (progress) => {
       updateLog(logId, { status: 'pending', message: progress.message });
     });
-    if (res.ok) {
-      refreshSessionCache();
+
+    if (res.ok && res.data) {
+      // Load into 3Dmol.js viewer
+      const viewer = globalViewerRef.current;
+      if (viewer) {
+        viewer.loadStructure(res.data, res.format || 'pdb');
+      }
       setPdbStatus('loaded');
       setPdbMsg(`Loaded ${normalizedId}`);
       setCurrentProjectMolecule({
         pdbId: normalizedId,
         name: info?.title || normalizedId,
       });
-      updateLog(logId, { status: 'success', message: 'Molecule loaded in PyMOL.' });
+      updateLog(logId, { status: 'success', message: 'Structure loaded.' });
     } else {
       setPdbStatus('error');
       setPdbMsg(res.error || 'Failed to fetch');
-      updateLog(logId, { status: 'error', message: res.error || 'Failed to fetch molecule.' });
+      updateLog(logId, { status: 'error', message: res.error || 'Failed to fetch structure.' });
     }
   };
 
@@ -107,7 +105,7 @@ const MoleculePanel: React.FC = () => {
     const result = await window.api.showOpenDialog({
       title: 'Import Molecule File',
       filters: [
-        { name: 'Molecule Files', extensions: ['pdb', 'cif', 'mol2', 'sdf'] },
+        { name: 'Molecule Files', extensions: ['pdb', 'cif', 'mol2', 'sdf', 'xyz'] },
         { name: 'All Files', extensions: ['*'] },
       ],
       properties: ['openFile'],
@@ -119,17 +117,22 @@ const MoleculePanel: React.FC = () => {
     setImportStatus('loading');
     setImportMsg('');
     const name = filePath.split(/[\\/]/).pop() || filePath;
-    const logId = addLog({ prompt: `Import: ${name}`, status: 'pending', message: 'Sending import request…' });
+    const logId = addLog({ prompt: `Import: ${name}`, status: 'pending', message: 'Reading file…' });
 
-    const res = await importFile(filePath, (progress) => {
+    const res = await readStructureFile(filePath, (progress) => {
       updateLog(logId, { status: 'pending', message: progress.message });
     });
-    if (res.ok) {
-      refreshSessionCache();
+
+    if (res.ok && res.data) {
+      // Load into 3Dmol.js viewer
+      const viewer = globalViewerRef.current;
+      if (viewer) {
+        viewer.loadStructure(res.data, res.format || 'pdb');
+      }
       setImportStatus('loaded');
       setImportMsg(`Loaded ${name}`);
       setCurrentProjectMolecule({ filePath, name });
-      updateLog(logId, { status: 'success', message: 'File loaded in PyMOL.' });
+      updateLog(logId, { status: 'success', message: 'Structure loaded.' });
     } else {
       setImportStatus('error');
       setImportMsg(res.error || 'Import failed');
@@ -215,7 +218,7 @@ const MoleculePanel: React.FC = () => {
               {pdbStatus === 'loading' ? (
                 <><Loader2 className="w-4 h-4 animate-spin" /> Loading…</>
               ) : (
-                'Load in PyMOL'
+                'Load Structure'
               )}
             </button>
 
@@ -238,7 +241,7 @@ const MoleculePanel: React.FC = () => {
             >
               <Upload className="w-6 h-6" />
               <span>Choose a molecule file</span>
-              <span className="text-xs text-neutral-500">.pdb .cif .mol2 .sdf</span>
+              <span className="text-xs text-neutral-500">.pdb .cif .mol2 .sdf .xyz</span>
             </button>
 
             {importMsg && (

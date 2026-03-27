@@ -1,12 +1,10 @@
 import React from 'react';
 import { useStore } from '../store';
 import { ArrowUp } from 'lucide-react';
-import { sendCommand, sendNL, snapshotWithPicker } from '../lib/bridge';
+import { sendNL } from '../lib/bridge';
 import { parsePromptToSpec } from '../lib/parse';
-import {
-  markCurrentProjectSessionDirty,
-  refreshCurrentProjectSessionCache,
-} from '../lib/projectSync';
+import { executeCommandSpec } from '../lib/viewerActions';
+import { globalViewerRef } from '../App';
 
 export const PromptInput: React.FC = () => {
   const draft = useStore((s) => s.draft);
@@ -14,22 +12,8 @@ export const PromptInput: React.FC = () => {
   const currentProjectId = useStore((s) => s.currentProjectId);
   const addLogToProject = useStore((s) => s.addLogToProject);
   const updateLogEntry = useStore((s) => s.updateLogEntry);
-  const setProjectSessionDirty = useStore((s) => s.setProjectSessionDirty);
-  const currentSelection = useStore((s) => s.currentSelection);
   const [sendingProjects, setSendingProjects] = React.useState<Record<string, number>>({});
-  const selectionTagContext = React.useMemo(
-    () =>
-      currentSelection
-        ? { label: currentSelection.label, target: currentSelection.target as any }
-        : undefined,
-    [currentSelection]
-  );
   const sending = Boolean(sendingProjects[currentProjectId]);
-
-  const refreshSessionCache = React.useCallback(() => {
-    markCurrentProjectSessionDirty();
-    void refreshCurrentProjectSessionCache();
-  }, []);
 
   const beginProjectSend = React.useCallback((projectId: string) => {
     setSendingProjects((prev) => ({
@@ -50,30 +34,49 @@ export const PromptInput: React.FC = () => {
     });
   }, []);
 
-  const markProjectSceneUpdated = React.useCallback(
-    (projectId: string) => {
-      if (useStore.getState().currentProjectId === projectId) {
-        refreshSessionCache();
-      } else {
-        setProjectSessionDirty(projectId, true);
-      }
-    },
-    [refreshSessionCache, setProjectSessionDirty]
-  );
+  /**
+   * Execute a command spec against the 3Dmol.js viewer.
+   * Returns the result for logging.
+   */
+  const executeSpec = React.useCallback((spec: { name: string; arguments?: Record<string, any> }) => {
+    const viewer = globalViewerRef.current;
+    if (!viewer) {
+      return { ok: false, message: 'Viewer not ready. Load a structure first.' };
+    }
 
-  const buildSelectionAwarePrompt = React.useCallback(
-    (prompt: string) => {
-      if (!currentSelection || !prompt.includes(currentSelection.label)) {
-        return prompt;
+    // Snapshot with file picker
+    if (spec.name === 'snapshot') {
+      const dataUri = viewer.snapshot();
+      if (!dataUri) return { ok: false, message: 'No viewer available for snapshot' };
+
+      // Save via Electron dialog or direct download
+      if (window.api?.showSaveDialog) {
+        const filename = spec.arguments?.filename || 'nexmol-snapshot.png';
+        window.api.showSaveDialog({
+          title: 'Save Snapshot',
+          defaultPath: filename,
+          filters: [{ name: 'PNG Image', extensions: ['png'] }],
+        }).then(async (res) => {
+          if (res.canceled || !res.filePath) return;
+          // Convert data URI to base64
+          const base64 = dataUri.split(',')[1];
+          if (base64 && window.api?.writeFile) {
+            await window.api.writeFile({ path: res.filePath, dataBase64: base64 });
+          }
+        });
+        return { ok: true, message: 'Snapshot dialog opened.' };
       }
-      return [
-        `Selection tag context: ${currentSelection.label} => ${JSON.stringify(currentSelection.target)}`,
-        `Selection description: ${currentSelection.description}`,
-        `User request: ${prompt}`,
-      ].join('\n');
-    },
-    [currentSelection]
-  );
+
+      // Fallback: direct download
+      const link = document.createElement('a');
+      link.download = spec.arguments?.filename || 'nexmol-snapshot.png';
+      link.href = dataUri;
+      link.click();
+      return { ok: true, message: `Snapshot saved as ${link.download}` };
+    }
+
+    return executeCommandSpec(spec, viewer);
+  }, []);
 
   const send = async () => {
     if (sending) return;
@@ -84,105 +87,60 @@ export const PromptInput: React.FC = () => {
     setDraft('');
     beginProjectSend(projectId);
 
-    // 1) Try to parse free-text into a command spec
-    const spec = parsePromptToSpec(val, selectionTagContext ? { selectionTag: selectionTagContext } : undefined);
-    if (!spec) {
-      const logId = addLogToProject(projectId, {
-        prompt: val,
-        status: 'pending',
-        message: 'Sending natural-language prompt…',
-      });
-      // Natural language — forward to bridge
-      try {
-        const resp = await sendNL(buildSelectionAwarePrompt(val), (progress) => {
-          updateLogEntry(projectId, logId, { status: 'pending', message: progress.message });
-        });
-        if (resp.ok) {
-          markProjectSceneUpdated(projectId);
-          updateLogEntry(projectId, logId, {
-            status: 'success',
-            message: 'Natural-language command completed.',
-          });
-        } else {
-          updateLogEntry(projectId, logId, {
-            status: 'error',
-            message: resp.error || 'Bridge not connected',
-          });
-        }
-      } catch {
-        updateLogEntry(projectId, logId, { status: 'error', message: 'Failed to reach bridge' });
-      } finally {
-        endProjectSend(projectId);
-      }
-      return;
-    }
+    // 1) Try to parse free-text into a command spec locally
+    const spec = parsePromptToSpec(val);
 
-    // Snapshot with file picker
-    if (spec.name === 'snapshot') {
+    if (spec) {
+      // Locally parsed — execute directly against viewer
       const logId = addLogToProject(projectId, {
         prompt: val,
         status: 'pending',
-        message: 'Preparing snapshot…',
+        message: 'Executing command…',
       });
-      const suggested = (spec.arguments?.filename as string | undefined)?.trim();
-      if (window.api?.showSaveDialog) {
-        const res = await snapshotWithPicker(suggested, (progress) => {
-          updateLogEntry(projectId, logId, { status: 'pending', message: progress.message });
-        });
-        if (res?.ok) {
-          updateLogEntry(projectId, logId, { status: 'success', message: 'Snapshot saved.' });
-        } else if (res?.canceled) {
-          updateLogEntry(projectId, logId, { status: 'error', message: 'Snapshot canceled.' });
-        } else {
-          updateLogEntry(projectId, logId, {
-            status: 'error',
-            message: res?.error || 'Snapshot failed',
-          });
-        }
-        endProjectSend(projectId);
-        return;
-      }
-      // Fallback
+
       try {
-        const fallbackName = suggested || 'snapshot.png';
-        const r2 = await sendCommand(
-          { name: 'snapshot', arguments: { filename: fallbackName } },
-          (progress) => {
-            updateLogEntry(projectId, logId, { status: 'pending', message: progress.message });
-          }
-        );
+        const result = executeSpec(spec);
         updateLogEntry(projectId, logId, {
-          status: r2.ok ? 'success' : 'error',
-          message: r2.ok ? 'Snapshot saved.' : r2.error || 'Snapshot failed',
+          status: result.ok ? 'success' : 'error',
+          message: result.message,
         });
-      } catch {
-        updateLogEntry(projectId, logId, { status: 'error', message: 'Snapshot failed' });
+      } catch (err: any) {
+        updateLogEntry(projectId, logId, {
+          status: 'error',
+          message: err?.message || 'Command execution failed',
+        });
       }
       endProjectSend(projectId);
       return;
     }
 
-    // 2) Fire to the local bridge with queue + retry
+    // 2) Not locally parsable — send to AI backend
     const logId = addLogToProject(projectId, {
       prompt: val,
       status: 'pending',
-      message: 'Sending command…',
+      message: 'Sending to AI…',
     });
+
     try {
-      const res = await sendCommand(spec, (progress) => {
+      const resp = await sendNL(val, (progress) => {
         updateLogEntry(projectId, logId, { status: 'pending', message: progress.message });
       });
-      if (res.ok) {
-        markProjectSceneUpdated(projectId);
-        updateLogEntry(projectId, logId, { status: 'success', message: 'Command completed in PyMOL.' });
+
+      if (resp.ok && resp.spec) {
+        // Execute the AI-returned spec against the viewer
+        const result = executeSpec(resp.spec);
+        updateLogEntry(projectId, logId, {
+          status: result.ok ? 'success' : 'error',
+          message: result.message,
+        });
       } else {
         updateLogEntry(projectId, logId, {
           status: 'error',
-          message: res.error || 'Bridge not connected',
+          message: resp.error || 'AI request failed',
         });
       }
     } catch {
-      updateLogEntry(projectId, logId, { status: 'error', message: 'Failed to reach bridge' });
+      updateLogEntry(projectId, logId, { status: 'error', message: 'Failed to reach backend' });
     } finally {
       endProjectSend(projectId);
     }
@@ -197,29 +155,13 @@ export const PromptInput: React.FC = () => {
 
   return (
     <div className="p-3 pt-2 flex flex-col gap-1.5">
-      {currentSelection && (
-        <div className="flex items-center gap-2 rounded-2xl bg-[#2A2A2A] px-3 py-2 text-xs text-neutral-300">
-          <span className="uppercase tracking-wide text-neutral-500">Selection</span>
-          <button
-            type="button"
-            onClick={() => setDraft(draft ? `${draft} ${currentSelection.label}` : currentSelection.label)}
-            className="rounded-full bg-brand/20 px-2 py-1 font-medium text-brand hover:bg-brand/30 app-no-drag"
-            title={`${currentSelection.description} • click to insert into prompt`}
-          >
-            {currentSelection.label}
-          </button>
-          <span className="truncate text-neutral-400" title={currentSelection.description}>
-            {currentSelection.description}
-          </span>
-        </div>
-      )}
       <div className="flex items-center">
         <input
           id="prompt-input"
           value={draft}
           onChange={(e) => setDraft(e.target.value)}
           onKeyDown={onKeyDown}
-          placeholder="Describe a single PyMOL action..."
+          placeholder="Describe a molecular visualization action..."
           disabled={sending}
           className="flex-1 h-10 px-3 rounded-3xl bg-[#2A2A2A] outline-none disabled:opacity-60"
         />
@@ -235,8 +177,7 @@ export const PromptInput: React.FC = () => {
       </div>
 
       <div className="text-xs text-neutral-400">
-        One PyMOL action per prompt. Temporary bridge outages retry automatically; plugin execution errors surface directly.
-        {currentSelection ? ' Click the selection tag to reference the current picked residue or atom.' : ''}
+        One action per prompt. Try &quot;show ligand as sticks&quot; or &quot;color chain A red&quot;.
       </div>
     </div>
   );

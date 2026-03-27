@@ -1,28 +1,33 @@
 """
-PyMOL AI Assistant — Bridge Server v0.1.1-alpha
-================================================
-FastAPI server bridging the Electron UI and PyMOL plugin via WebSocket.
-Runs on http://127.0.0.1:5179.
+NexMol — Backend Server v0.2.0
+===============================
+FastAPI server providing AI/LLM, config, and structure data services.
+The frontend (Electron + 3Dmol.js) executes viewer commands directly.
 """
-import asyncio
-import base64
+from __future__ import annotations
+
 import json
 import logging
 import os
 import platform
+import socket
 import stat
+import sys
 import time
-import uuid
-import zipfile
-from io import BytesIO
 from pathlib import Path
-from typing import Dict, Set
 
 import httpx
 import uvicorn
-from fastapi import FastAPI, WebSocket, WebSocketDisconnect, Request
+from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
+from openai import OpenAI
+
+from command_model import (
+    CANONICAL_ACTIONS,
+    ONLY_ONE_ACTION_ERROR,
+    normalize_command_spec,
+)
 
 # ---------------------------------------------------------------------------
 # Logging
@@ -32,83 +37,38 @@ logging.basicConfig(
     format="%(asctime)s [%(name)s] %(levelname)s — %(message)s",
     datefmt="%H:%M:%S",
 )
-log = logging.getLogger("pymol_bridge")
+log = logging.getLogger("nexmol")
 
 # ---------------------------------------------------------------------------
 # App
 # ---------------------------------------------------------------------------
 _start_time = time.time()
-__version__ = "0.1.1-alpha"
+__version__ = "0.2.0"
 
-app = FastAPI(title="PyMOL Bridge", version=__version__)
+app = FastAPI(title="NexMol Backend", version=__version__)
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=[
-        "http://localhost:5173",
-        "http://127.0.0.1:5173",
-        "http://localhost:3000",
-        "http://127.0.0.1:3000",
-    ],
+    allow_origins=["*"],  # Electron app, all local
     allow_credentials=False,
     allow_methods=["*"],
     allow_headers=["*"],
 )
 
 # ---------------------------------------------------------------------------
-# Paths
+# Paths / Config
 # ---------------------------------------------------------------------------
 _IS_WINDOWS = platform.system() == "Windows"
-_CONFIG_DIR = Path.home() / ".pymol"
+_CONFIG_DIR = Path.home() / ".nexmol"
 _CONFIG_PATH = _CONFIG_DIR / "config.json"
-_RECENT_PATH = _CONFIG_DIR / "recent_projects.json"
+DEFAULT_OPENAI_MODEL = "gpt-4.1-mini"
 
-# ---------------------------------------------------------------------------
-# State
-# ---------------------------------------------------------------------------
-clients: Set[WebSocket] = set()
-pending: Dict[str, asyncio.Future] = {}
-# session data responses keyed by message id
-session_data: Dict[str, asyncio.Future] = {}
-selection_data: Dict[str, asyncio.Future] = {}
-client_last_seen: Dict[WebSocket, float] = {}
-
-STALE_CLIENT_SECONDS = 30.0
-COMMAND_TIMEOUTS = {
-    "nl_prompt": 45.0,
-    "fetch_pdb": 45.0,
-    "load_file": 20.0,
-    "snapshot": 15.0,
-    "get_session": 60.0,
-    "set_session": 45.0,
-    "clear_workspace": 15.0,
-    "get_selection_info": 5.0,
+RES_MAP = {
+    "A": "ALA", "C": "CYS", "D": "ASP", "E": "GLU", "F": "PHE",
+    "G": "GLY", "H": "HIS", "I": "ILE", "K": "LYS", "L": "LEU",
+    "M": "MET", "N": "ASN", "P": "PRO", "Q": "GLN", "R": "ARG",
+    "S": "SER", "T": "THR", "V": "VAL", "W": "TRP", "Y": "TYR",
 }
-
-# ---------------------------------------------------------------------------
-# Config helpers
-# ---------------------------------------------------------------------------
-
-
-def _touch_client(ws: WebSocket):
-    client_last_seen[ws] = time.time()
-
-
-def _prune_stale_clients():
-    cutoff = time.time() - STALE_CLIENT_SECONDS
-    stale = [ws for ws in list(clients) if client_last_seen.get(ws, 0.0) < cutoff]
-    for ws in stale:
-        clients.discard(ws)
-        client_last_seen.pop(ws, None)
-
-
-def _has_live_clients() -> bool:
-    _prune_stale_clients()
-    return len(clients) > 0
-
-
-def _timeout_for_command(name: str) -> float:
-    return COMMAND_TIMEOUTS.get((name or "").lower(), 8.0)
 
 
 def _read_config() -> dict:
@@ -124,198 +84,92 @@ def _write_config(cfg: dict):
     _CONFIG_DIR.mkdir(parents=True, exist_ok=True)
     _CONFIG_PATH.write_text(json.dumps(cfg, indent=2), encoding="utf-8")
     if not _IS_WINDOWS:
-        os.chmod(str(_CONFIG_PATH), stat.S_IRUSR | stat.S_IWUSR)  # 600
+        os.chmod(str(_CONFIG_PATH), stat.S_IRUSR | stat.S_IWUSR)
 
 
-def _read_recent() -> list:
-    try:
-        if _RECENT_PATH.exists():
-            return json.loads(_RECENT_PATH.read_text(encoding="utf-8"))
-    except Exception:
-        pass
-    return []
+def _get_api_key() -> str:
+    cfg = _read_config()
+    return cfg.get("openai_api_key", "")
 
 
-def _write_recent(items: list):
-    _CONFIG_DIR.mkdir(parents=True, exist_ok=True)
-    _RECENT_PATH.write_text(json.dumps(items[:10], indent=2), encoding="utf-8")
+def _get_openai_model() -> str:
+    cfg = _read_config()
+    model = str(cfg.get("openai_model") or "").strip()
+    return model or DEFAULT_OPENAI_MODEL
 
 
 # ---------------------------------------------------------------------------
-# WebSocket endpoint (PyMOL plugin connects here)
+# LLM
 # ---------------------------------------------------------------------------
+_openai_client: OpenAI | None = None
 
 
-@app.websocket("/bridge")
-async def bridge_ws(ws: WebSocket):
-    await ws.accept()
-    clients.add(ws)
-    _touch_client(ws)
-    log.info("Plugin connected (%d total)", len(clients))
-    try:
-        while True:
-            msg = await ws.receive_text()
-            try:
-                data = json.loads(msg)
-                _touch_client(ws)
-                if data.get("type") == "heartbeat":
-                    continue
-                # Check for session data response
-                if data.get("type") == "session_data":
-                    mid = data.get("id")
-                    if mid and mid in session_data:
-                        fut = session_data.pop(mid)
-                        if not fut.done():
-                            fut.set_result(data)
-                    continue
-                if data.get("type") == "selection_data":
-                    mid = data.get("id")
-                    if mid and mid in selection_data:
-                        fut = selection_data.pop(mid)
-                        if not fut.done():
-                            fut.set_result(data)
-                    continue
-                # Check for ACK
-                mid = data.get("id")
-                if mid and mid in pending:
-                    fut = pending.pop(mid)
-                    if not fut.done():
-                        fut.set_result(data)
-            except Exception:
-                pass
-    except WebSocketDisconnect:
-        pass
-    finally:
-        clients.discard(ws)
-        client_last_seen.pop(ws, None)
-        log.info("Plugin disconnected (%d remaining)", len(clients))
+def _get_openai_client() -> OpenAI:
+    global _openai_client
+    if _openai_client is not None:
+        return _openai_client
+    key = _get_api_key()
+    if not key:
+        raise RuntimeError(
+            "No API key configured. Enter your key in Settings."
+        )
+    _openai_client = OpenAI(api_key=key)
+    return _openai_client
 
 
-# ---------------------------------------------------------------------------
-# Broadcast + ACK helpers
-# ---------------------------------------------------------------------------
+def _call_llm(prompt: str) -> dict:
+    """Send a natural language prompt to OpenAI and return a command spec."""
+    log.debug("LLM prompt: %s", prompt)
+    client = _get_openai_client()
 
+    system_msg = (
+        "You are a molecular visualization assistant. The user asks for exactly one simple action. "
+        f"If the request contains multiple actions, respond with JSON error text: {json.dumps(ONLY_ONE_ACTION_ERROR)}.\n"
+        "Respond with exactly one JSON OBJECT with keys:\n"
+        " • name: one of "
+        + ", ".join(f'"{k}"' for k in sorted(CANONICAL_ACTIONS | {"set_background", "rotate_view", "snapshot"}))
+        + "\n"
+        " • arguments: an OBJECT of keyword arguments.\n"
+        "SelectionSpec shapes:\n"
+        ' • {"kind":"all"}\n'
+        ' • {"kind":"protein"}\n'
+        ' • {"kind":"ligand"}\n'
+        ' • {"kind":"water"}\n'
+        ' • {"kind":"metals"}\n'
+        ' • {"kind":"hydrogens"}\n'
+        ' • {"kind":"chain","chain":"A"}\n'
+        ' • {"kind":"residue","residue":"ASP","resi":"21","chain":"B"}\n'
+        ' • {"kind":"atom","atom":"CA","residue":"ASP","resi":"21","chain":"B"}\n'
+        ' • {"kind":"object","object":"my_obj"}\n'
+        "Use canonical command names instead of legacy names like color_residue or set_cartoon.\n"
+        "Do not return arrays. Do not chain actions. Examples:\n"
+        ' remove waters -> {"name":"remove_selection","arguments":{"target":{"kind":"water"}}}\n'
+        ' measure distance between selected -> {"name":"measure_distance","arguments":{"source":{"kind":"current_selection"},"target":{"kind":"current_selection"}}}\n'
+        ' show ligand as sticks -> {"name":"show_representation","arguments":{"target":{"kind":"ligand"},"representation":"sticks"}}\n'
+        ' label residues in chain A -> {"name":"label_selection","arguments":{"target":{"kind":"chain","chain":"A"},"mode":"residue"}}\n'
+        ' set surface transparency to 0.4 on protein -> {"name":"set_transparency","arguments":{"target":{"kind":"protein"},"representation":"surface","value":0.4}}\n'
+        ' measure distance between ligand and residue ASP in chain B -> {"name":"measure_distance","arguments":{"source":{"kind":"ligand"},"target":{"kind":"residue","residue":"ASP","chain":"B"}}}\n'
+        ' color protein by chain -> {"name":"color_by_chain","arguments":{"target":{"kind":"protein"}}}\n'
+        ' color ligand by element -> {"name":"color_by_element","arguments":{"target":{"kind":"ligand"}}}\n'
+    )
 
-async def _broadcast_and_wait(payload: dict, timeout: float = 8.0):
-    if not _has_live_clients():
-        return {"ok": False, "error": "No PyMOL plugin connected"}, 503
-
-    mid = str(uuid.uuid4())
-    payload = dict(payload)
-    payload["id"] = mid
-
-    loop = asyncio.get_event_loop()
-    fut = loop.create_future()
-    pending[mid] = fut
-
-    text = json.dumps(payload)
-    dead = []
-    for ws in list(clients):
-        try:
-            await ws.send_text(text)
-        except Exception:
-            dead.append(ws)
-    for ws in dead:
-        clients.discard(ws)
-        client_last_seen.pop(ws, None)
-
-    try:
-        ack = await asyncio.wait_for(fut, timeout=timeout)
-        if isinstance(ack, dict) and ack.get("ok") is True:
-            return {"ok": True}, 200
-        err = (ack or {}).get("error") if isinstance(ack, dict) else None
-        return {"ok": False, "error": err or "Execution failed"}, 500
-    except asyncio.TimeoutError:
-        pending.pop(mid, None)
-        return {"ok": False, "error": "Plugin ACK timeout"}, 504
-
-
-async def _broadcast_and_wait_session(
-    payload: dict, timeout: float = 15.0
-):
-    """Like _broadcast_and_wait but also waits for session_data response."""
-    if not clients:
-        return None, {"ok": False, "error": "No PyMOL plugin connected"}, 503
-    _prune_stale_clients()
-    if not clients:
-        return None, {"ok": False, "error": "No PyMOL plugin connected"}, 503
-
-    mid = str(uuid.uuid4())
-    payload = dict(payload)
-    payload["id"] = mid
-
-    loop = asyncio.get_event_loop()
-
-    # ACK future
-    ack_fut = loop.create_future()
-    pending[mid] = ack_fut
-
-    # Session data future
-    sess_fut = loop.create_future()
-    session_data[mid] = sess_fut
-
-    text = json.dumps(payload)
-    for ws in list(clients):
-        try:
-            await ws.send_text(text)
-        except Exception:
-            clients.discard(ws)
-            client_last_seen.pop(ws, None)
-
-    try:
-        started = time.time()
-        ack = await asyncio.wait_for(ack_fut, timeout=timeout)
-        if isinstance(ack, dict) and ack.get("ok") is not True:
-            err = ack.get("error") or "Execution failed"
-            return None, {"ok": False, "error": err}, 500
-
-        elapsed = max(0.0, time.time() - started)
-        remaining = max(0.1, timeout - elapsed)
-        data = await asyncio.wait_for(sess_fut, timeout=remaining)
-        return data, {"ok": True}, 200
-    except asyncio.TimeoutError:
-        pending.pop(mid, None)
-        session_data.pop(mid, None)
-        return None, {"ok": False, "error": "Session capture timeout"}, 504
-
-
-async def _broadcast_and_wait_selection(payload: dict, timeout: float = 5.0):
-    if not _has_live_clients():
-        return None, {"ok": False, "error": "No PyMOL plugin connected"}, 503
-
-    mid = str(uuid.uuid4())
-    payload = dict(payload)
-    payload["id"] = mid
-
-    loop = asyncio.get_event_loop()
-    ack_fut = loop.create_future()
-    data_fut = loop.create_future()
-    pending[mid] = ack_fut
-    selection_data[mid] = data_fut
-
-    text = json.dumps(payload)
-    for ws in list(clients):
-        try:
-            await ws.send_text(text)
-        except Exception:
-            clients.discard(ws)
-            client_last_seen.pop(ws, None)
-
-    try:
-        started = time.time()
-        ack = await asyncio.wait_for(ack_fut, timeout=timeout)
-        if isinstance(ack, dict) and ack.get("ok") is not True:
-            err = ack.get("error") or "Execution failed"
-            return None, {"ok": False, "error": err}, 500
-
-        elapsed = max(0.0, time.time() - started)
-        remaining = max(0.1, timeout - elapsed)
-        data = await asyncio.wait_for(data_fut, timeout=remaining)
-        return data, {"ok": True}, 200
-    except asyncio.TimeoutError:
-        pending.pop(mid, None)
-        selection_data.pop(mid, None)
-        return None, {"ok": False, "error": "Selection info timeout"}, 504
+    resp = client.chat.completions.create(
+        model=_get_openai_model(),
+        messages=[
+            {"role": "system", "content": system_msg},
+            {"role": "user", "content": prompt},
+        ],
+        temperature=0.1,
+        max_completion_tokens=200,
+    )
+    content = resp.choices[0].message.content.strip()
+    log.debug("LLM raw response: %s", content)
+    spec = json.loads(content)
+    if isinstance(spec, str):
+        raise RuntimeError(spec)
+    if not isinstance(spec, dict):
+        raise RuntimeError("Malformed LLM response")
+    return spec
 
 
 # ---------------------------------------------------------------------------
@@ -328,47 +182,18 @@ async def health_check():
     return {
         "status": "ok",
         "version": __version__,
-        "plugin_connected": _has_live_clients(),
         "uptime_seconds": round(time.time() - _start_time, 1),
     }
 
 
-@app.get("/selection/current")
-async def current_selection():
-    data, result, code = await _broadcast_and_wait_selection(
-        {"name": "get_selection_info", "arguments": {}},
-        timeout=_timeout_for_command("get_selection_info"),
-    )
-    if code != 200:
-        return JSONResponse(result, status_code=code)
-    return {"ok": True, "selection": (data or {}).get("selection")}
-
-
 # ---------------------------------------------------------------------------
-# Command endpoints
+# Natural Language → Command Spec
 # ---------------------------------------------------------------------------
-
-
-@app.post("/command")
-async def command(req: Request):
-    try:
-        payload = await req.json()
-        if not isinstance(payload, dict) or "name" not in payload:
-            return JSONResponse(
-                {"ok": False, "error": "Invalid payload"}, status_code=400
-            )
-    except Exception:
-        return JSONResponse({"ok": False, "error": "Bad JSON"}, status_code=400)
-
-    data, code = await _broadcast_and_wait(
-        payload, timeout=_timeout_for_command(payload.get("name", ""))
-    )
-    return JSONResponse(data, status_code=code)
 
 
 @app.post("/nl")
 async def nl(req: Request):
-    """Natural language prompt → plugin executes via LLM."""
+    """Natural language prompt → normalized command spec returned to frontend."""
     try:
         payload = await req.json()
         if not isinstance(payload, dict):
@@ -383,11 +208,16 @@ async def nl(req: Request):
     except Exception:
         return JSONResponse({"ok": False, "error": "Bad JSON"}, status_code=400)
 
-    envelope = {"name": "nl_prompt", "arguments": {"text": text}}
-    data, code = await _broadcast_and_wait(
-        envelope, timeout=_timeout_for_command(envelope["name"])
-    )
-    return JSONResponse(data, status_code=code)
+    try:
+        raw_spec = _call_llm(text)
+        # Normalize through command_model for validation
+        normalized = normalize_command_spec(raw_spec, residue_map=RES_MAP)
+        return {"ok": True, "spec": normalized}
+    except Exception as exc:
+        log.error("NL failed: %s", exc)
+        return JSONResponse(
+            {"ok": False, "error": str(exc)}, status_code=500
+        )
 
 
 # ---------------------------------------------------------------------------
@@ -398,22 +228,13 @@ async def nl(req: Request):
 @app.get("/api-key")
 async def get_api_key():
     """Check if an API key is configured (never returns the key itself)."""
-    cfg = _read_config()
-    key = cfg.get("openai_api_key", "")
-    if not key:
-        # Check legacy file
-        legacy = Path.home() / ".pymol" / "openai_api_key.txt"
-        if legacy.exists():
-            try:
-                key = legacy.read_text(encoding="utf-8").strip()
-            except Exception:
-                pass
+    key = _get_api_key()
     return {"configured": bool(key)}
 
 
 @app.post("/api-key")
 async def save_api_key(req: Request):
-    """Save the API key to ~/.pymol/config.json."""
+    """Save the API key to config."""
     try:
         body = await req.json()
         key = (body.get("key") or "").strip()
@@ -424,10 +245,13 @@ async def save_api_key(req: Request):
     except Exception:
         return JSONResponse({"ok": False, "error": "Bad JSON"}, status_code=400)
 
+    global _openai_client
+    _openai_client = None  # Reset cached client
+
     cfg = _read_config()
     cfg["openai_api_key"] = key
     _write_config(cfg)
-    log.info("API key saved to config.")
+    log.info("API key saved.")
     return {"ok": True}
 
 
@@ -438,7 +262,6 @@ async def validate_key(req: Request):
         body = await req.json()
         key = (body.get("key") or "").strip()
         if not key:
-            # Use stored key
             cfg = _read_config()
             key = cfg.get("openai_api_key", "")
         if not key:
@@ -463,10 +286,7 @@ async def validate_key(req: Request):
                 )
             else:
                 return JSONResponse(
-                    {
-                        "ok": False,
-                        "error": f"OpenAI returned status {resp.status_code}",
-                    },
+                    {"ok": False, "error": f"OpenAI returned status {resp.status_code}"},
                     status_code=502,
                 )
     except Exception as exc:
@@ -476,7 +296,7 @@ async def validate_key(req: Request):
 
 
 # ---------------------------------------------------------------------------
-# PDB / Molecule endpoints
+# Structure data endpoints
 # ---------------------------------------------------------------------------
 
 
@@ -504,9 +324,7 @@ async def _lookup_pdb_metadata(pdb_id: str):
             "resolution": rcsb.get("resolution_combined", [None])[0]
             if rcsb.get("resolution_combined")
             else None,
-            "polymer_entity_count": rcsb.get(
-                "polymer_entity_count_protein", 0
-            ),
+            "polymer_entity_count": rcsb.get("polymer_entity_count_protein", 0),
         }, None
 
     if resp.status_code == 404:
@@ -529,19 +347,19 @@ async def pdb_info(pdb_id: str):
         return JSONResponse(
             {"ok": False, "error": "PDB ID must be 4 characters"}, status_code=400
         )
-
     metadata, error_response = await _lookup_pdb_metadata(pdb_id)
     if error_response is not None:
         return error_response
     return metadata
 
 
-@app.post("/fetch-pdb")
-async def fetch_pdb(req: Request):
-    """Tell the PyMOL plugin to fetch a PDB structure."""
+@app.post("/structures/fetch-data")
+async def fetch_structure_data(req: Request):
+    """Download PDB/mmCIF structure data from RCSB and return it to the frontend."""
     try:
         body = await req.json()
         pdb_id = (body.get("pdb_id") or "").strip().upper()
+        fmt = (body.get("format") or "pdb").strip().lower()
         if not pdb_id:
             return JSONResponse(
                 {"ok": False, "error": "pdb_id is required"}, status_code=400
@@ -553,25 +371,42 @@ async def fetch_pdb(req: Request):
     except Exception:
         return JSONResponse({"ok": False, "error": "Bad JSON"}, status_code=400)
 
-    if not _has_live_clients():
-        return JSONResponse(
-            {"ok": False, "error": "No PyMOL plugin connected"}, status_code=503
-        )
-
+    # Verify the PDB ID is valid first
     _, error_response = await _lookup_pdb_metadata(pdb_id)
     if error_response is not None:
         return error_response
 
-    data, code = await _broadcast_and_wait(
-        {"name": "fetch_pdb", "arguments": {"pdb_id": pdb_id}},
-        timeout=_timeout_for_command("fetch_pdb"),
-    )
-    return JSONResponse(data, status_code=code)
+    # Download structure data
+    if fmt == "cif" or fmt == "mmcif":
+        url = f"https://files.rcsb.org/download/{pdb_id}.cif"
+        out_format = "cif"
+    else:
+        url = f"https://files.rcsb.org/download/{pdb_id}.pdb"
+        out_format = "pdb"
+
+    try:
+        async with httpx.AsyncClient(timeout=30.0) as client:
+            resp = await client.get(url)
+        if resp.status_code != 200:
+            return JSONResponse(
+                {"ok": False, "error": f"RCSB download failed (HTTP {resp.status_code})"},
+                status_code=502,
+            )
+        return {
+            "ok": True,
+            "pdb_id": pdb_id,
+            "format": out_format,
+            "data": resp.text,
+        }
+    except Exception as exc:
+        return JSONResponse(
+            {"ok": False, "error": f"Download failed: {exc}"}, status_code=502
+        )
 
 
-@app.post("/import-file")
-async def import_file(req: Request):
-    """Tell the PyMOL plugin to load a local file."""
+@app.post("/structures/read-file")
+async def read_structure_file(req: Request):
+    """Read a local structure file and return its contents to the frontend."""
     try:
         body = await req.json()
         file_path = (body.get("file_path") or "").strip()
@@ -579,182 +414,58 @@ async def import_file(req: Request):
             return JSONResponse(
                 {"ok": False, "error": "file_path is required"}, status_code=400
             )
-        if not Path(file_path).exists():
-            return JSONResponse(
-                {"ok": False, "error": f"File not found: {file_path}"},
-                status_code=404,
-            )
     except Exception:
         return JSONResponse({"ok": False, "error": "Bad JSON"}, status_code=400)
 
-    data, code = await _broadcast_and_wait(
-        {"name": "load_file", "arguments": {"file_path": file_path}},
-        timeout=_timeout_for_command("load_file"),
-    )
-    return JSONResponse(data, status_code=code)
-
-
-@app.post("/session/capture")
-async def session_capture():
-    data, payload, code = await _broadcast_and_wait_session(
-        {"name": "get_session"}, timeout=_timeout_for_command("get_session")
-    )
-    if data is None:
-        return JSONResponse(payload, status_code=code)
-    return {"ok": True, "data": data.get("data", "")}
-
-
-@app.post("/session/restore")
-async def session_restore(req: Request):
-    try:
-        body = await req.json()
-        data = (body.get("data") or "").strip()
-    except Exception:
-        return JSONResponse({"ok": False, "error": "Bad JSON"}, status_code=400)
-
-    if not data:
+    path = Path(file_path)
+    if not path.exists():
         return JSONResponse(
-            {"ok": False, "error": "data is required"}, status_code=400
+            {"ok": False, "error": f"File not found: {file_path}"}, status_code=404
         )
 
-    payload, code = await _broadcast_and_wait(
-        {"name": "set_session", "arguments": {"data": data}},
-        timeout=_timeout_for_command("set_session"),
-    )
-    return JSONResponse(payload, status_code=code)
-
-
-@app.post("/session/clear")
-async def session_clear():
-    payload, code = await _broadcast_and_wait(
-        {"name": "clear_workspace", "arguments": {}},
-        timeout=_timeout_for_command("clear_workspace"),
-    )
-    return JSONResponse(payload, status_code=code)
-
-
-# ---------------------------------------------------------------------------
-# Project save / load
-# ---------------------------------------------------------------------------
-
-
-@app.post("/project/save")
-async def project_save(req: Request):
-    """
-    Save a .pymolai project file (zip containing metadata.json + session.pse).
-    """
-    try:
-        body = await req.json()
-        save_path = (body.get("path") or "").strip()
-        project_name = body.get("name", "Untitled")
-        commands = body.get("commands", [])
-        pdb_id = body.get("pdb_id", "")
-        molecule_path = body.get("molecule_path", "")
-    except Exception:
-        return JSONResponse({"ok": False, "error": "Bad JSON"}, status_code=400)
-
-    if not save_path:
-        return JSONResponse(
-            {"ok": False, "error": "Save path required"}, status_code=400
-        )
-
-    # Request session from plugin
-    sess_resp, _, code = await _broadcast_and_wait_session(
-        {"name": "get_session"}, timeout=_timeout_for_command("get_session")
-    )
-    if sess_resp is None:
-        return JSONResponse(
-            {"ok": False, "error": "Failed to capture PyMOL session"}, status_code=code
-        )
-
-    session_b64 = sess_resp.get("data", "")
-
-    # Build metadata
-    metadata = {
-        "name": project_name,
-        "version": __version__,
-        "created_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
-        "commands": commands,
-        "pdb_id": pdb_id,
-        "molecule_path": molecule_path,
+    # Determine format from extension
+    ext = path.suffix.lower().lstrip(".")
+    format_map = {
+        "pdb": "pdb",
+        "cif": "cif",
+        "mmcif": "cif",
+        "mol2": "mol2",
+        "sdf": "sdf",
+        "mol": "sdf",
+        "xyz": "xyz",
     }
-
-    # Write zip
-    try:
-        save_p = Path(save_path)
-        if not save_p.suffix:
-            save_p = save_p.with_suffix(".pymolai")
-
-        buf = BytesIO()
-        with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as zf:
-            zf.writestr("metadata.json", json.dumps(metadata, indent=2))
-            if session_b64:
-                zf.writestr("session.pse", base64.b64decode(session_b64))
-        save_p.parent.mkdir(parents=True, exist_ok=True)
-        save_p.write_bytes(buf.getvalue())
-
-        # Update recent projects
-        recent = _read_recent()
-        entry = {"name": project_name, "path": str(save_p), "saved_at": metadata["created_at"]}
-        recent = [r for r in recent if r.get("path") != str(save_p)]
-        recent.insert(0, entry)
-        _write_recent(recent[:10])
-
-        log.info("Project saved: %s", save_p)
-        return {"ok": True, "path": str(save_p)}
-    except Exception as exc:
-        log.error("Project save failed: %s", exc)
-        return JSONResponse(
-            {"ok": False, "error": str(exc)}, status_code=500
-        )
-
-
-@app.post("/project/load")
-async def project_load(req: Request):
-    """Load a .pymolai project file and restore the session in PyMOL."""
-    try:
-        body = await req.json()
-        load_path = (body.get("path") or "").strip()
-    except Exception:
-        return JSONResponse({"ok": False, "error": "Bad JSON"}, status_code=400)
-
-    if not load_path or not Path(load_path).exists():
-        return JSONResponse(
-            {"ok": False, "error": "Project file not found"}, status_code=404
-        )
+    fmt = format_map.get(ext, "pdb")
 
     try:
-        with zipfile.ZipFile(load_path, "r") as zf:
-            metadata = json.loads(zf.read("metadata.json"))
-            session_bytes = None
-            if "session.pse" in zf.namelist():
-                session_bytes = zf.read("session.pse")
+        data = path.read_text(encoding="utf-8")
+        return {
+            "ok": True,
+            "file_path": file_path,
+            "format": fmt,
+            "name": path.name,
+            "data": data,
+        }
     except Exception as exc:
         return JSONResponse(
-            {"ok": False, "error": f"Failed to read project file: {exc}"},
-            status_code=400,
+            {"ok": False, "error": f"Failed to read file: {exc}"}, status_code=500
         )
 
-    return {
-        "ok": True,
-        "metadata": metadata,
-        "session_data": base64.b64encode(session_bytes).decode("ascii")
-        if session_bytes
-        else "",
-    }
-
-
-@app.get("/projects/recent")
-async def recent_projects():
-    """Return the last 5 saved projects."""
-    items = _read_recent()
-    # Filter out non-existent files
-    valid = [r for r in items if Path(r.get("path", "")).exists()]
-    return {"ok": True, "projects": valid[:5]}
-
 
 # ---------------------------------------------------------------------------
-# Main
+# Main — ephemeral port with stdout handshake
 # ---------------------------------------------------------------------------
+
+
+def _find_free_port() -> int:
+    """Bind to port 0 to let the OS assign a free port."""
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+        s.bind(("127.0.0.1", 0))
+        return s.getsockname()[1]
+
+
 if __name__ == "__main__":
-    uvicorn.run("main:app", host="127.0.0.1", port=5179, reload=False)
+    port = _find_free_port()
+    # Handshake: Electron reads this line to discover our port
+    print(f"NEXMOL_PORT={port}", flush=True)
+    log.info("NexMol backend starting on 127.0.0.1:%d", port)
+    uvicorn.run(app, host="127.0.0.1", port=port, log_level="warning")
