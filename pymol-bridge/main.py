@@ -6,6 +6,7 @@ The frontend (Electron + 3Dmol.js) executes viewer commands directly.
 """
 from __future__ import annotations
 
+import datetime
 import json
 import logging
 import os
@@ -61,7 +62,7 @@ app.add_middleware(
 _IS_WINDOWS = platform.system() == "Windows"
 _CONFIG_DIR = Path.home() / ".nexmol"
 _CONFIG_PATH = _CONFIG_DIR / "config.json"
-DEFAULT_OPENAI_MODEL = "gpt-4.1-mini"
+DEFAULT_OPENAI_MODEL = "gpt-5.4-mini"
 
 RES_MAP = {
     "A": "ALA", "C": "CYS", "D": "ASP", "E": "GLU", "F": "PHE",
@@ -449,6 +450,100 @@ async def read_structure_file(req: Request):
         return JSONResponse(
             {"ok": False, "error": f"Failed to read file: {exc}"}, status_code=500
         )
+
+
+# ---------------------------------------------------------------------------
+# Project Save / Load
+# ---------------------------------------------------------------------------
+_RECENT_PROJECTS_PATH = _CONFIG_DIR / "recent_projects.json"
+
+
+def _update_recent(name: str, path_str: str) -> None:
+    """Track the last 10 saved/opened projects."""
+    _CONFIG_DIR.mkdir(parents=True, exist_ok=True)
+    recent: list[dict] = []
+    if _RECENT_PROJECTS_PATH.exists():
+        try:
+            recent = json.loads(_RECENT_PROJECTS_PATH.read_text(encoding="utf-8"))
+        except Exception:
+            pass
+    # Remove duplicate
+    recent = [r for r in recent if r.get("path") != path_str]
+    recent.insert(0, {
+        "name": name,
+        "path": path_str,
+        "saved_at": datetime.datetime.utcnow().isoformat() + "Z",
+    })
+    recent = recent[:10]
+    _RECENT_PROJECTS_PATH.write_text(json.dumps(recent, indent=2), encoding="utf-8")
+
+
+@app.post("/projects/save")
+async def save_project(request: Request) -> dict:
+    body = await request.json()
+    file_path = body.get("path", "")
+    name = body.get("name", "Untitled")
+    commands = body.get("commands", [])
+    notes = body.get("notes", "")
+    pdb_id = body.get("pdb_id")
+    molecule_path = body.get("molecule_path")
+
+    if not file_path:
+        return JSONResponse({"ok": False, "error": "No file path"}, status_code=400)
+
+    project_data = {
+        "version": "0.2.0",
+        "name": name,
+        "commands": commands,
+        "notes": notes,
+        "pdb_id": pdb_id,
+        "molecule_path": molecule_path,
+        "saved_at": datetime.datetime.utcnow().isoformat() + "Z",
+    }
+
+    try:
+        p = Path(file_path)
+        p.parent.mkdir(parents=True, exist_ok=True)
+        p.write_text(json.dumps(project_data, indent=2), encoding="utf-8")
+        _update_recent(name, file_path)
+        return {"ok": True, "path": file_path}
+    except Exception as exc:
+        return JSONResponse(
+            {"ok": False, "error": f"Save failed: {exc}"}, status_code=500
+        )
+
+
+@app.post("/projects/load")
+async def load_project(request: Request) -> dict:
+    body = await request.json()
+    file_path = body.get("path", "")
+
+    if not file_path:
+        return JSONResponse({"ok": False, "error": "No file path"}, status_code=400)
+
+    p = Path(file_path)
+    if not p.exists():
+        return JSONResponse({"ok": False, "error": "File not found"}, status_code=404)
+
+    try:
+        data = json.loads(p.read_text(encoding="utf-8"))
+        _update_recent(data.get("name", p.stem), file_path)
+        return {"ok": True, "data": data}
+    except Exception as exc:
+        return JSONResponse(
+            {"ok": False, "error": f"Load failed: {exc}"}, status_code=500
+        )
+
+
+@app.get("/projects/recent")
+async def get_recent_projects() -> dict:
+    if _RECENT_PROJECTS_PATH.exists():
+        try:
+            recent = json.loads(_RECENT_PROJECTS_PATH.read_text(encoding="utf-8"))
+            return {"ok": True, "projects": recent}
+        except Exception:
+            pass
+    return {"ok": True, "projects": []}
 
 
 # ---------------------------------------------------------------------------

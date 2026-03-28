@@ -1,10 +1,11 @@
 import React from 'react';
 import { useStore } from '../store';
 import { Button } from './Button';
-import { Copy, Plus } from 'lucide-react';
+import { Copy, Plus, Save, FolderOpen } from 'lucide-react';
 import SettingsPanel from './SettingsPanel';
 import HealthCheckPanel from './HealthCheckPanel';
 import MoleculePanel from './MoleculePanel';
+import { saveProject, loadProject, getRecentProjects } from '../lib/bridge';
 import ConfirmDialog from './ConfirmDialog';
 
 export const RightPanels: React.FC = () => {
@@ -46,15 +47,21 @@ const ProjectsPanel: React.FC = () => {
   const renameProject = useStore((s) => s.renameProject);
   const pendingRenameId = useStore((s) => s.pendingRenameId);
   const setPendingRename = useStore((s) => s.setPendingRename);
+  const logs = useStore((s) => s.logs);
   const addLog = useStore((s) => s.addLog);
+  const projectMolecules = useStore((s) => s.projectMolecules);
   const selectProject = useStore((s) => s.selectProject);
   const createProject = useStore((s) => s.createProject);
   const deleteProject = useStore((s) => s.deleteProject);
+  const hydrateProject = useStore((s) => s.hydrateProjectFromLoadedFile);
+  const notes = useStore((s) => s.notes);
 
   const [hoverId, setHoverId] = React.useState<string | null>(null);
   const [menuId, setMenuId] = React.useState<string | null>(null);
   const [renameId, setRenameId] = React.useState<string | null>(null);
+  const [saving, setSaving] = React.useState(false);
   const [deleteId, setDeleteId] = React.useState<string | null>(null);
+  const [recentProjects, setRecentProjects] = React.useState<Array<{ name: string; path: string; saved_at: string }>>([]);
   const inputRef = React.useRef<HTMLInputElement>(null);
 
   React.useEffect(() => {
@@ -65,6 +72,10 @@ const ProjectsPanel: React.FC = () => {
       setPendingRename(null);
     }
   }, [pendingRenameId, setPendingRename]);
+
+  React.useEffect(() => {
+    getRecentProjects().then(setRecentProjects).catch(() => {});
+  }, []);
 
   const onRename = (id: string) => {
     setRenameId(id);
@@ -77,11 +88,77 @@ const ProjectsPanel: React.FC = () => {
     setRenameId(null);
   };
 
+  const onSave = async () => {
+    if (!window.api?.showSaveDialog) return;
+    const proj = projects.find((p) => p.id === current);
+    const currentMolecule = projectMolecules[current] || {};
+    const res = await window.api.showSaveDialog({
+      title: 'Save Project',
+      defaultPath: `${proj?.name || 'project'}.nexmol`,
+      filters: [{ name: 'NexMol Project', extensions: ['nexmol'] }],
+    });
+    if (!res || res.canceled || !res.filePath) return;
+
+    setSaving(true);
+    const projectLogs = logs[current] || [];
+    const result = await saveProject({
+      path: res.filePath,
+      name: proj?.name || 'Untitled',
+      commands: projectLogs.map((l) => ({ prompt: l.prompt, ts: l.ts, status: l.status })),
+      notes: notes[current] || '',
+      pdb_id: currentMolecule.pdbId,
+      molecule_path: currentMolecule.filePath,
+    });
+    setSaving(false);
+
+    if (result.ok) {
+      addLog({ prompt: 'Save project', status: 'success', message: `Saved to ${result.path}` });
+      getRecentProjects().then(setRecentProjects).catch(() => {});
+    } else {
+      addLog({ prompt: 'Save project', status: 'error', message: result.error || 'Failed' });
+    }
+  };
+
+  const onOpen = async (path?: string) => {
+    let filePath = path;
+    if (!filePath) {
+      if (!window.api?.showOpenDialog) return;
+      const res = await window.api.showOpenDialog({
+        title: 'Open Project',
+        filters: [{ name: 'NexMol Project', extensions: ['nexmol'] }],
+        properties: ['openFile'],
+      });
+      if (!res || res.canceled || !res.filePaths?.length) return;
+      filePath = res.filePaths[0];
+    }
+
+    const result = await loadProject(filePath!);
+    if (result.ok && result.data) {
+      const d = result.data;
+      const projectId = hydrateProject({
+        name: d.name || 'Loaded Project',
+        logs: (d.commands || []).map((c: any) => ({
+          prompt: c.prompt,
+          ts: c.ts,
+          status: c.status || 'success',
+          message: '',
+        })),
+        notes: d.notes,
+        molecule: { pdbId: d.pdb_id, filePath: d.molecule_path },
+      });
+      selectProject(projectId);
+      addLog({ prompt: 'Open project', status: 'success', message: `Loaded: ${d.name}` });
+      getRecentProjects().then(setRecentProjects).catch(() => {});
+    } else {
+      addLog({ prompt: 'Open project', status: 'error', message: result.error || 'Failed' });
+    }
+  };
+
   return (
     <div className="h-full flex flex-col bg-[#2A2A2A]">
       <SectionTitle>Projects</SectionTitle>
 
-      {/* New project button */}
+      {/* Save / Open buttons */}
       <div className="flex gap-2 px-3 py-2">
         <button
           onClick={() => createProject('New Project')}
@@ -89,7 +166,39 @@ const ProjectsPanel: React.FC = () => {
         >
           <Plus className="w-3.5 h-3.5" /> New
         </button>
+        <button
+          onClick={onSave}
+          disabled={saving}
+          className="flex-1 h-8 rounded-full bg-brand hover:bg-brandHover text-black text-sm font-medium flex items-center justify-center gap-1.5 disabled:opacity-40"
+        >
+          <Save className="w-3.5 h-3.5" /> {saving ? 'Saving…' : 'Save'}
+        </button>
+        <button
+          onClick={() => onOpen()}
+          className="flex-1 h-8 rounded-full bg-neutral-700 hover:bg-neutral-600 text-sm flex items-center justify-center gap-1.5"
+        >
+          <FolderOpen className="w-3.5 h-3.5" /> Open
+        </button>
       </div>
+
+      {/* Recent projects */}
+      {recentProjects.length > 0 && (
+        <div className="px-3 pb-2">
+          <div className="text-[11px] uppercase text-neutral-500 mb-1">Recent</div>
+          {recentProjects.slice(0, 5).map((r) => (
+            <button
+              key={r.path}
+              onClick={() => onOpen(r.path)}
+              className="w-full text-left text-sm px-2 py-1 rounded-lg hover:bg-neutral-900/60 truncate text-neutral-300"
+              title={r.path}
+            >
+              {r.name}
+            </button>
+          ))}
+        </div>
+      )}
+
+      <div className="h-px bg-neutral-700 mx-3" />
 
       {/* Project list */}
       <div className="p-2 flex-1 overflow-auto">

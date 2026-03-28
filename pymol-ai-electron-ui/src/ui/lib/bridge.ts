@@ -98,6 +98,14 @@ async function apiFetch<T = any>(
   }
 }
 
+function post<T = any>(path: string, body: any): Promise<BridgeResult<T>> {
+  return apiFetch<T>(path, { method: 'POST', body: JSON.stringify(body) });
+}
+
+function get<T = any>(path: string): Promise<BridgeResult<T>> {
+  return apiFetch<T>(path, { method: 'GET' });
+}
+
 function delay(ms: number) {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
@@ -313,4 +321,37 @@ export async function writeFile(
   } catch (error: any) {
     return { ok: false, error: error?.message || 'File write failed' };
   }
+}
+
+// ---------------------------------------------------------------------------
+// Project Save / Load
+// ---------------------------------------------------------------------------
+
+export async function saveProject(opts: {
+  path: string;
+  name: string;
+  commands: any[];
+  notes?: string;
+  pdb_id?: string;
+  molecule_path?: string;
+}): Promise<{ ok: boolean; path?: string; error?: string }> {
+  const res = await post('/projects/save', opts);
+  if (res.ok && res.data) return res.data;
+  return { ok: false, error: res.error || 'Save failed' };
+}
+
+export async function loadProject(
+  path: string
+): Promise<{ ok: boolean; data?: any; error?: string }> {
+  const res = await post('/projects/load', { path });
+  if (res.ok && res.data) return res.data;
+  return { ok: false, error: res.error || 'Load failed' };
+}
+
+export async function getRecentProjects(): Promise<
+  Array<{ name: string; path: string; saved_at: string }>
+> {
+  const res = await get('/projects/recent');
+  if (res.ok && res.data?.projects) return res.data.projects;
+  return [];
 }

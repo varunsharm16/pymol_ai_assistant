@@ -1,22 +1,20 @@
 import React, { useRef, useEffect, useImperativeHandle, forwardRef, useCallback } from 'react';
-
-// 3Dmol.js types
-declare const $3Dmol: any;
+import * as $3Dmol from '3dmol';
 
 /**
  * Amino acid 3-letter codes used to identify protein residues.
  */
-const AMINO_ACIDS = [
+const AMINO_ACIDS = new Set([
   'ALA', 'ARG', 'ASN', 'ASP', 'CYS', 'GLN', 'GLU', 'GLY', 'HIS', 'ILE',
   'LEU', 'LYS', 'MET', 'PHE', 'PRO', 'SER', 'THR', 'TRP', 'TYR', 'VAL',
-];
+]);
 
 /** Common metal element symbols. */
 const METAL_ELEMENTS = [
   'FE', 'ZN', 'MG', 'CA', 'MN', 'CO', 'NI', 'CU', 'MO', 'NA', 'K',
 ];
 
-/** Chain color palette for color_by_chain. */
+/** Chain color palette. */
 const CHAIN_COLORS = [
   '#1f77b4', '#ff7f0e', '#2ca02c', '#d62728', '#9467bd',
   '#8c564b', '#e377c2', '#7f7f7f', '#bcbd22', '#17becf',
@@ -58,19 +56,15 @@ export interface MoleculeViewerHandle {
  */
 function toAtomSel(spec: SelectionSpec): Record<string, any> {
   const kind = spec.kind;
-
   if (kind === 'all') return {};
-  if (kind === 'protein') return { resn: AMINO_ACIDS };
-  if (kind === 'ligand') return { hetflag: true, not: { resn: ['HOH'] } };
+  if (kind === 'protein') return { resn: [...AMINO_ACIDS] };
+  if (kind === 'ligand') return { hetflag: true, not: { resn: ['HOH', 'WAT'] } };
   if (kind === 'water') return { resn: ['HOH', 'WAT'] };
   if (kind === 'metals') return { elem: METAL_ELEMENTS };
   if (kind === 'hydrogens') return { elem: 'H' };
-  if (kind === 'current_selection') return {}; // fallback to all for now
+  if (kind === 'current_selection') return {};
 
-  if (kind === 'chain') {
-    const sel: Record<string, any> = { chain: spec.chain };
-    return sel;
-  }
+  if (kind === 'chain') return { chain: spec.chain };
 
   if (kind === 'residue') {
     const sel: Record<string, any> = { resn: spec.residue };
@@ -87,11 +81,7 @@ function toAtomSel(spec: SelectionSpec): Record<string, any> {
     return sel;
   }
 
-  if (kind === 'object') {
-    // 3Dmol.js uses model index — for now, return all
-    return {};
-  }
-
+  if (kind === 'object') return {};
   return {};
 }
 
@@ -99,14 +89,26 @@ function toAtomSel(spec: SelectionSpec): Record<string, any> {
 function reprToStyleKey(repr: string): string {
   const map: Record<string, string> = {
     cartoon: 'cartoon',
+    ribbon: 'cartoon',
     sticks: 'stick',
+    stick: 'stick',
     surface: 'surface',
     spheres: 'sphere',
+    sphere: 'sphere',
     lines: 'line',
+    line: 'line',
     mesh: 'mesh',
     dots: 'dots',
   };
   return map[repr] || repr;
+}
+
+/** Guess a default representation for a selection kind. */
+function defaultReprForKind(kind: string): string {
+  if (kind === 'ligand' || kind === 'residue' || kind === 'atom' || kind === 'metals') {
+    return 'stick';
+  }
+  return 'cartoon';
 }
 
 const MoleculeViewer = forwardRef<MoleculeViewerHandle, { className?: string }>(
@@ -119,32 +121,13 @@ const MoleculeViewer = forwardRef<MoleculeViewerHandle, { className?: string }>(
 
     // Initialize 3Dmol viewer
     useEffect(() => {
-      if (!containerRef.current) return;
+      if (!containerRef.current || viewerRef.current) return;
 
-      // Load 3Dmol.js from CDN if not already loaded
-      const init = () => {
-        if (typeof $3Dmol === 'undefined') {
-          const script = document.createElement('script');
-          script.src = 'https://3Dmol.org/build/3Dmol-min.js';
-          script.async = true;
-          script.onload = () => createViewer();
-          document.head.appendChild(script);
-        } else {
-          createViewer();
-        }
-      };
-
-      const createViewer = () => {
-        if (!containerRef.current || viewerRef.current) return;
-        viewerRef.current = $3Dmol.createViewer(containerRef.current, {
-          backgroundColor: '#1a1a1a',
-          antialias: true,
-        });
-        viewerRef.current.setViewStyle({ style: 'outline', color: '#333333', width: 0.02 });
-        viewerRef.current.render();
-      };
-
-      init();
+      viewerRef.current = ($3Dmol as any).createViewer(containerRef.current, {
+        backgroundColor: '#1a1a1a',
+        antialias: true,
+      });
+      viewerRef.current.render();
 
       return () => {
         if (viewerRef.current) {
@@ -154,9 +137,7 @@ const MoleculeViewer = forwardRef<MoleculeViewerHandle, { className?: string }>(
       };
     }, []);
 
-    const getViewer = useCallback(() => {
-      return viewerRef.current;
-    }, []);
+    const getViewer = useCallback(() => viewerRef.current, []);
 
     useImperativeHandle(ref, () => ({
       loadStructure(data: string, format: string) {
@@ -165,6 +146,7 @@ const MoleculeViewer = forwardRef<MoleculeViewerHandle, { className?: string }>(
         v.removeAllModels();
         v.removeAllLabels();
         v.removeAllShapes();
+        v.removeAllSurfaces();
         labelsRef.current = [];
         shapesRef.current = [];
 
@@ -182,8 +164,9 @@ const MoleculeViewer = forwardRef<MoleculeViewerHandle, { className?: string }>(
         const styleKey = reprToStyleKey(representation);
 
         if (styleKey === 'surface') {
-          v.addSurface($3Dmol.SurfaceType.VDW, { opacity: 0.8, color: 'white' }, atomSel);
+          v.addSurface(($3Dmol as any).SurfaceType.VDW, { opacity: 0.8, color: 'white' }, atomSel);
         } else {
+          // addStyle adds on top of existing styles
           v.addStyle(atomSel, { [styleKey]: {} });
         }
         v.render();
@@ -194,14 +177,16 @@ const MoleculeViewer = forwardRef<MoleculeViewerHandle, { className?: string }>(
         if (!v) return;
         const atomSel = toAtomSel(selection);
 
-        if (representation === 'everything' || representation === 'all') {
+        if (!representation || representation === 'everything' || representation === 'all') {
+          // Clear all styles on the selection
           v.setStyle(atomSel, {});
           v.removeAllSurfaces();
         } else if (representation === 'surface') {
           v.removeAllSurfaces();
         } else {
-          const styleKey = reprToStyleKey(representation);
-          v.removeStyle(atomSel, { [styleKey]: {} });
+          // 3Dmol.js has no removeStyle for a specific type.
+          // Clear all styles on these atoms — user can re-show what they want.
+          v.setStyle(atomSel, {});
         }
         v.render();
       },
@@ -209,10 +194,12 @@ const MoleculeViewer = forwardRef<MoleculeViewerHandle, { className?: string }>(
       isolateSelection(selection: SelectionSpec, representation?: string) {
         const v = getViewer();
         if (!v) return;
+        // Hide everything
         v.setStyle({}, {});
         v.removeAllSurfaces();
+        // Show just the selection
         const atomSel = toAtomSel(selection);
-        const styleKey = reprToStyleKey(representation || 'cartoon');
+        const styleKey = reprToStyleKey(representation || defaultReprForKind(selection.kind));
         v.setStyle(atomSel, { [styleKey]: {} });
         v.zoomTo(atomSel);
         v.render();
@@ -222,7 +209,14 @@ const MoleculeViewer = forwardRef<MoleculeViewerHandle, { className?: string }>(
         const v = getViewer();
         if (!v) return;
         const atomSel = toAtomSel(selection);
-        v.removeAtoms(atomSel);
+        // removeAtoms is destructive — removes atoms from the model
+        const atoms = v.selectedAtoms(atomSel);
+        if (atoms.length > 0) {
+          for (const atom of atoms) {
+            v.removeAtoms(atomSel);
+            break; // removeAtoms removes all matching at once
+          }
+        }
         v.render();
       },
 
@@ -230,26 +224,10 @@ const MoleculeViewer = forwardRef<MoleculeViewerHandle, { className?: string }>(
         const v = getViewer();
         if (!v) return;
         const atomSel = toAtomSel(selection);
-        // Get current styles and update color
-        v.setStyle(atomSel, {}, false);  // don't clear existing
-        // Re-add with color — we need to use addStyle to preserve representations
-        const model = v.getModel();
-        if (!model) return;
-        const atoms = v.selectedAtoms(atomSel);
-        if (atoms.length === 0) return;
-
-        // Get existing style and add color
-        v.setStyle(atomSel, (prevStyle: any) => {
-          const newStyle: Record<string, any> = {};
-          for (const key of Object.keys(prevStyle || {})) {
-            newStyle[key] = { ...prevStyle[key], color };
-          }
-          // If no style was set, default to cartoon
-          if (Object.keys(newStyle).length === 0) {
-            newStyle.cartoon = { color };
-          }
-          return newStyle;
-        });
+        // Determine a good default representation for this selection type
+        const repr = defaultReprForKind(selection.kind);
+        // setStyle replaces styles — apply representation with color
+        v.setStyle(atomSel, { [repr]: { color } });
         v.render();
       },
 
@@ -258,22 +236,18 @@ const MoleculeViewer = forwardRef<MoleculeViewerHandle, { className?: string }>(
         if (!v) return;
         const atomSel = toAtomSel(selection);
         const atoms = v.selectedAtoms(atomSel);
-        const chains = [...new Set(atoms.map((a: any) => a.chain as string))].sort();
+        const chainSet = new Set<string>();
+        for (const a of atoms) {
+          if (a.chain) chainSet.add(a.chain);
+        }
+        const chains = [...chainSet].sort();
+        const repr = defaultReprForKind(selection.kind);
 
-        chains.forEach((chain, idx) => {
-          const chainColor = CHAIN_COLORS[idx % CHAIN_COLORS.length];
-          const chainSel = { ...atomSel, chain };
-          v.setStyle(chainSel, (prevStyle: any) => {
-            const newStyle: Record<string, any> = {};
-            for (const key of Object.keys(prevStyle || {})) {
-              newStyle[key] = { ...prevStyle[key], color: chainColor };
-            }
-            if (Object.keys(newStyle).length === 0) {
-              newStyle.cartoon = { color: chainColor };
-            }
-            return newStyle;
-          });
-        });
+        for (let i = 0; i < chains.length; i++) {
+          const chainColor = CHAIN_COLORS[i % CHAIN_COLORS.length];
+          const chainSel = { ...atomSel, chain: chains[i] };
+          v.setStyle(chainSel, { [repr]: { color: chainColor } });
+        }
         v.render();
       },
 
@@ -281,16 +255,9 @@ const MoleculeViewer = forwardRef<MoleculeViewerHandle, { className?: string }>(
         const v = getViewer();
         if (!v) return;
         const atomSel = toAtomSel(selection);
-        v.setStyle(atomSel, (prevStyle: any) => {
-          const newStyle: Record<string, any> = {};
-          for (const key of Object.keys(prevStyle || {})) {
-            newStyle[key] = { ...prevStyle[key], colorscheme: 'Jmol' };
-          }
-          if (Object.keys(newStyle).length === 0) {
-            newStyle.stick = { colorscheme: 'Jmol' };
-          }
-          return newStyle;
-        });
+        // Jmol color scheme colors by element
+        const repr = defaultReprForKind(selection.kind);
+        v.setStyle(atomSel, { [repr]: { colorscheme: 'Jmol' } });
         v.render();
       },
 
@@ -298,11 +265,11 @@ const MoleculeViewer = forwardRef<MoleculeViewerHandle, { className?: string }>(
         const v = getViewer();
         if (!v) return;
         const atomSel = toAtomSel(selection);
-        const opacity = 1.0 - value; // value is transparency, 3Dmol uses opacity
+        const opacity = Math.max(0, Math.min(1, 1.0 - value));
 
         if (representation === 'surface') {
           v.removeAllSurfaces();
-          v.addSurface($3Dmol.SurfaceType.VDW, { opacity, color: 'white' }, atomSel);
+          v.addSurface(($3Dmol as any).SurfaceType.VDW, { opacity, color: 'white' }, atomSel);
         } else {
           const styleKey = reprToStyleKey(representation);
           v.setStyle(atomSel, { [styleKey]: { opacity } });
@@ -316,12 +283,14 @@ const MoleculeViewer = forwardRef<MoleculeViewerHandle, { className?: string }>(
         const atomSel = toAtomSel(selection);
         const atoms = v.selectedAtoms(atomSel);
 
-        // Clear existing labels
-        labelsRef.current.forEach((l: any) => v.removeLabel(l));
+        // Clear previous labels
+        for (const l of labelsRef.current) {
+          try { v.removeLabel(l); } catch { /* ignore */ }
+        }
         labelsRef.current = [];
 
         if (mode === 'atom') {
-          atoms.forEach((atom: any) => {
+          for (const atom of atoms) {
             const label = v.addLabel(atom.atom, {
               position: { x: atom.x, y: atom.y, z: atom.z },
               fontSize: 12,
@@ -330,14 +299,15 @@ const MoleculeViewer = forwardRef<MoleculeViewerHandle, { className?: string }>(
               backgroundColor: '#333333',
             });
             labelsRef.current.push(label);
-          });
+          }
         } else {
-          // Residue mode — label CA atoms (or first atom per residue)
+          // Residue mode — label CA or P atoms (one per residue)
           const seen = new Set<string>();
-          atoms.forEach((atom: any) => {
+          for (const atom of atoms) {
             const key = `${atom.chain}_${atom.resn}_${atom.resi}`;
-            if (seen.has(key)) return;
-            if (atom.atom !== 'CA' && atom.atom !== 'P') return;
+            if (seen.has(key)) continue;
+            // Prefer CA (protein) or P (nucleic acid) or first atom
+            if (atom.atom !== 'CA' && atom.atom !== 'P') continue;
             seen.add(key);
             const label = v.addLabel(`${atom.resn}${atom.resi}`, {
               position: { x: atom.x, y: atom.y, z: atom.z },
@@ -347,13 +317,13 @@ const MoleculeViewer = forwardRef<MoleculeViewerHandle, { className?: string }>(
               backgroundColor: '#444444',
             });
             labelsRef.current.push(label);
-          });
-          // If no CA/P atoms found, label first atom per residue
+          }
+          // Fallback: if no CA/P atoms, label first atom per residue
           if (labelsRef.current.length === 0) {
             const seen2 = new Set<string>();
-            atoms.forEach((atom: any) => {
+            for (const atom of atoms) {
               const key = `${atom.chain}_${atom.resn}_${atom.resi}`;
-              if (seen2.has(key)) return;
+              if (seen2.has(key)) continue;
               seen2.add(key);
               const label = v.addLabel(`${atom.resn}${atom.resi}`, {
                 position: { x: atom.x, y: atom.y, z: atom.z },
@@ -363,7 +333,7 @@ const MoleculeViewer = forwardRef<MoleculeViewerHandle, { className?: string }>(
                 backgroundColor: '#444444',
               });
               labelsRef.current.push(label);
-            });
+            }
           }
         }
         v.render();
@@ -372,16 +342,14 @@ const MoleculeViewer = forwardRef<MoleculeViewerHandle, { className?: string }>(
       zoomTo(selection: SelectionSpec) {
         const v = getViewer();
         if (!v) return;
-        const atomSel = toAtomSel(selection);
-        v.zoomTo(atomSel);
+        v.zoomTo(toAtomSel(selection));
         v.render();
       },
 
       orientSelection(selection: SelectionSpec) {
         const v = getViewer();
         if (!v) return;
-        const atomSel = toAtomSel(selection);
-        v.zoomTo(atomSel);
+        v.zoomTo(toAtomSel(selection));
         v.render();
       },
 
@@ -390,36 +358,23 @@ const MoleculeViewer = forwardRef<MoleculeViewerHandle, { className?: string }>(
         if (!v) return;
         const sourceAtoms = v.selectedAtoms(toAtomSel(source));
         const targetAtoms = v.selectedAtoms(toAtomSel(target));
-
         if (sourceAtoms.length === 0 || targetAtoms.length === 0) return;
 
-        // Use center of mass of each selection
         const center = (atoms: any[]) => {
-          const sum = atoms.reduce(
-            (acc: any, a: any) => ({ x: acc.x + a.x, y: acc.y + a.y, z: acc.z + a.z }),
-            { x: 0, y: 0, z: 0 }
-          );
-          return { x: sum.x / atoms.length, y: sum.y / atoms.length, z: sum.z / atoms.length };
+          let sx = 0, sy = 0, sz = 0;
+          for (const a of atoms) { sx += a.x; sy += a.y; sz += a.z; }
+          const n = atoms.length;
+          return { x: sx / n, y: sy / n, z: sz / n };
         };
 
         const p1 = center(sourceAtoms);
         const p2 = center(targetAtoms);
-
-        const dx = p2.x - p1.x;
-        const dy = p2.y - p1.y;
-        const dz = p2.z - p1.z;
+        const dx = p2.x - p1.x, dy = p2.y - p1.y, dz = p2.z - p1.z;
         const dist = Math.sqrt(dx * dx + dy * dy + dz * dz);
 
-        // Draw line
-        const shape = v.addLine({
-          start: p1,
-          end: p2,
-          color: '#ffff00',
-          dashed: true,
-        });
+        const shape = v.addLine({ start: p1, end: p2, color: '#ffff00', dashed: true });
         shapesRef.current.push(shape);
 
-        // Label with distance
         const mid = { x: (p1.x + p2.x) / 2, y: (p1.y + p2.y) / 2, z: (p1.z + p2.z) / 2 };
         const label = v.addLabel(`${dist.toFixed(1)} Å`, {
           position: mid,
@@ -442,10 +397,7 @@ const MoleculeViewer = forwardRef<MoleculeViewerHandle, { className?: string }>(
       rotateView(axis: string, angle: number) {
         const v = getViewer();
         if (!v) return;
-        const axisLower = axis.toLowerCase();
-        if (axisLower === 'x') v.rotate(angle, 'x');
-        else if (axisLower === 'y') v.rotate(angle, 'y');
-        else if (axisLower === 'z') v.rotate(angle, 'z');
+        v.rotate(angle, axis.toLowerCase());
         v.render();
       },
 
