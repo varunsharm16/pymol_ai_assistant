@@ -3,7 +3,7 @@ import { useStore } from '../store';
 import { ArrowUp } from 'lucide-react';
 import { sendNL } from '../lib/bridge';
 import { parsePromptToSpec } from '../lib/parse';
-import { executeCommandSpec } from '../lib/viewerActions';
+import { executeCommandSpec, updateViewerStateAfterCommand } from '../lib/viewerActions';
 import { globalViewerRef } from '../App';
 
 export const PromptInput: React.FC = () => {
@@ -12,6 +12,7 @@ export const PromptInput: React.FC = () => {
   const currentProjectId = useStore((s) => s.currentProjectId);
   const addLogToProject = useStore((s) => s.addLogToProject);
   const updateLogEntry = useStore((s) => s.updateLogEntry);
+  const setProjectViewerState = useStore((s) => s.setProjectViewerState);
   const [sendingProjects, setSendingProjects] = React.useState<Record<string, number>>({});
   const sending = Boolean(sendingProjects[currentProjectId]);
 
@@ -35,10 +36,10 @@ export const PromptInput: React.FC = () => {
   }, []);
 
   /**
-   * Execute a command spec against the 3Dmol.js viewer.
+   * Execute a command spec against the active molecular viewer.
    * Returns the result for logging.
    */
-  const executeSpec = React.useCallback((spec: { name: string; arguments?: Record<string, any> }) => {
+  const executeSpec = React.useCallback(async (spec: { name: string; arguments?: Record<string, any> }) => {
     const viewer = globalViewerRef.current;
     if (!viewer) {
       return { ok: false, message: 'Viewer not ready. Load a structure first.' };
@@ -46,7 +47,7 @@ export const PromptInput: React.FC = () => {
 
     // Snapshot with file picker
     if (spec.name === 'snapshot') {
-      const dataUri = viewer.snapshot();
+      const dataUri = await viewer.snapshot();
       if (!dataUri) return { ok: false, message: 'No viewer available for snapshot' };
 
       // Save via Electron dialog or direct download
@@ -78,6 +79,19 @@ export const PromptInput: React.FC = () => {
     return executeCommandSpec(spec, viewer);
   }, []);
 
+  const persistViewerState = React.useCallback(async (
+    projectId: string,
+    spec: { name: string; arguments?: Record<string, any> }
+  ) => {
+    const viewer = globalViewerRef.current;
+    if (!viewer?.getSceneSnapshot) return;
+
+    const snapshot = await viewer.getSceneSnapshot();
+    const currentViewerState = useStore.getState().projectViewerStates[projectId];
+    const nextState = updateViewerStateAfterCommand(currentViewerState, spec, snapshot);
+    setProjectViewerState(projectId, nextState);
+  }, [setProjectViewerState]);
+
   const send = async () => {
     if (sending) return;
     const val = draft.trim();
@@ -96,18 +110,25 @@ export const PromptInput: React.FC = () => {
         prompt: val,
         status: 'pending',
         message: 'Executing command…',
+        resolver: 'parser',
+        normalizedSpec: spec,
       });
 
       try {
-        const result = executeSpec(spec);
+        const result = await executeSpec(spec);
+        if (result.ok) {
+          await persistViewerState(projectId, spec);
+        }
         updateLogEntry(projectId, logId, {
           status: result.ok ? 'success' : 'error',
           message: result.message,
+          diagnostic: result.ok ? undefined : result.message,
         });
       } catch (err: any) {
         updateLogEntry(projectId, logId, {
           status: 'error',
           message: err?.message || 'Command execution failed',
+          diagnostic: err?.message || 'Command execution failed',
         });
       }
       endProjectSend(projectId);
@@ -119,6 +140,7 @@ export const PromptInput: React.FC = () => {
       prompt: val,
       status: 'pending',
       message: 'Sending to AI…',
+      resolver: 'llm',
     });
 
     try {
@@ -128,19 +150,29 @@ export const PromptInput: React.FC = () => {
 
       if (resp.ok && resp.spec) {
         // Execute the AI-returned spec against the viewer
-        const result = executeSpec(resp.spec);
+        const result = await executeSpec(resp.spec);
+        if (result.ok) {
+          await persistViewerState(projectId, resp.spec);
+        }
         updateLogEntry(projectId, logId, {
           status: result.ok ? 'success' : 'error',
           message: result.message,
+          normalizedSpec: resp.spec,
+          diagnostic: result.ok ? undefined : result.message,
         });
       } else {
         updateLogEntry(projectId, logId, {
           status: 'error',
           message: resp.error || 'AI request failed',
+          diagnostic: resp.error || 'AI request failed',
         });
       }
     } catch {
-      updateLogEntry(projectId, logId, { status: 'error', message: 'Failed to reach backend' });
+      updateLogEntry(projectId, logId, {
+        status: 'error',
+        message: 'Failed to reach backend',
+        diagnostic: 'Failed to reach backend',
+      });
     } finally {
       endProjectSend(projectId);
     }
@@ -177,7 +209,7 @@ export const PromptInput: React.FC = () => {
       </div>
 
       <div className="text-xs text-neutral-400">
-        One action per prompt. Try &quot;show ligand as sticks&quot; or &quot;color chain A red&quot;.
+        One action per prompt. Try &quot;show ligand as sticks&quot; or &quot;color chain A red&quot;. Click a residue first for prompts that use the current selection.
       </div>
     </div>
   );

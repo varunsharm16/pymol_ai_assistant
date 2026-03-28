@@ -10,6 +10,8 @@ const MoleculePanel: React.FC = () => {
   const [tab, setTab] = React.useState<Tab>('fetch');
   const currentMolecule = useStore((s) => s.projectMolecules[s.currentProjectId] || {});
   const setCurrentProjectMolecule = useStore((s) => s.setCurrentProjectMolecule);
+  const setCurrentProjectStructure = useStore((s) => s.setCurrentProjectStructure);
+  const setCurrentProjectViewerState = useStore((s) => s.setCurrentProjectViewerState);
   const addLog = useStore((s) => s.addLog);
   const updateLog = useStore((s) => s.updateLog);
 
@@ -78,18 +80,37 @@ const MoleculePanel: React.FC = () => {
     });
 
     if (res.ok && res.data) {
-      // Load into 3Dmol.js viewer
-      const viewer = globalViewerRef.current;
-      if (viewer) {
-        viewer.loadStructure(res.data, res.format || 'pdb');
+      try {
+        const viewer = globalViewerRef.current;
+        if (viewer) {
+          await viewer.loadStructure(res.data, res.format || 'pdb', { objectName: normalizedId });
+          const snapshot = await viewer.getSceneSnapshot();
+          setCurrentProjectViewerState({
+            backgroundColor: snapshot.backgroundColor,
+            cameraSnapshot: snapshot.cameraSnapshot,
+            operations: [],
+          });
+        }
+        setPdbStatus('loaded');
+        setPdbMsg(`Loaded ${normalizedId}`);
+        setCurrentProjectMolecule({
+          pdbId: normalizedId,
+          name: info?.title || normalizedId,
+        });
+        setCurrentProjectStructure({
+          data: res.data,
+          format: res.format || 'pdb',
+          objectName: normalizedId,
+        });
+        updateLog(logId, { status: 'success', message: 'Structure loaded.' });
+      } catch (error: any) {
+        setPdbStatus('error');
+        setPdbMsg(error?.message || 'Failed to load structure');
+        updateLog(logId, {
+          status: 'error',
+          message: error?.message || 'Viewer failed to load structure.',
+        });
       }
-      setPdbStatus('loaded');
-      setPdbMsg(`Loaded ${normalizedId}`);
-      setCurrentProjectMolecule({
-        pdbId: normalizedId,
-        name: info?.title || normalizedId,
-      });
-      updateLog(logId, { status: 'success', message: 'Structure loaded.' });
     } else {
       setPdbStatus('error');
       setPdbMsg(res.error || 'Failed to fetch');
@@ -124,15 +145,34 @@ const MoleculePanel: React.FC = () => {
     });
 
     if (res.ok && res.data) {
-      // Load into 3Dmol.js viewer
-      const viewer = globalViewerRef.current;
-      if (viewer) {
-        viewer.loadStructure(res.data, res.format || 'pdb');
+      try {
+        const viewer = globalViewerRef.current;
+        if (viewer) {
+          await viewer.loadStructure(res.data, res.format || 'pdb', { objectName: name });
+          const snapshot = await viewer.getSceneSnapshot();
+          setCurrentProjectViewerState({
+            backgroundColor: snapshot.backgroundColor,
+            cameraSnapshot: snapshot.cameraSnapshot,
+            operations: [],
+          });
+        }
+        setImportStatus('loaded');
+        setImportMsg(`Loaded ${name}`);
+        setCurrentProjectMolecule({ filePath, name });
+        setCurrentProjectStructure({
+          data: res.data,
+          format: res.format || 'pdb',
+          objectName: name,
+        });
+        updateLog(logId, { status: 'success', message: 'Structure loaded.' });
+      } catch (error: any) {
+        setImportStatus('error');
+        setImportMsg(error?.message || 'Import failed');
+        updateLog(logId, {
+          status: 'error',
+          message: error?.message || 'Viewer failed to load structure.',
+        });
       }
-      setImportStatus('loaded');
-      setImportMsg(`Loaded ${name}`);
-      setCurrentProjectMolecule({ filePath, name });
-      updateLog(logId, { status: 'success', message: 'Structure loaded.' });
     } else {
       setImportStatus('error');
       setImportMsg(res.error || 'Import failed');

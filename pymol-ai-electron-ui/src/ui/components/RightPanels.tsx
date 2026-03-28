@@ -5,7 +5,7 @@ import { Copy, Plus, Save, FolderOpen } from 'lucide-react';
 import SettingsPanel from './SettingsPanel';
 import HealthCheckPanel from './HealthCheckPanel';
 import MoleculePanel from './MoleculePanel';
-import { saveProject, loadProject, getRecentProjects } from '../lib/bridge';
+import { saveProject, loadProject, getRecentProjects, fetchStructureData, readStructureFile } from '../lib/bridge';
 import ConfirmDialog from './ConfirmDialog';
 
 export const RightPanels: React.FC = () => {
@@ -50,6 +50,8 @@ const ProjectsPanel: React.FC = () => {
   const logs = useStore((s) => s.logs);
   const addLog = useStore((s) => s.addLog);
   const projectMolecules = useStore((s) => s.projectMolecules);
+  const projectStructures = useStore((s) => s.projectStructures);
+  const projectViewerStates = useStore((s) => s.projectViewerStates);
   const selectProject = useStore((s) => s.selectProject);
   const createProject = useStore((s) => s.createProject);
   const deleteProject = useStore((s) => s.deleteProject);
@@ -92,6 +94,8 @@ const ProjectsPanel: React.FC = () => {
     if (!window.api?.showSaveDialog) return;
     const proj = projects.find((p) => p.id === current);
     const currentMolecule = projectMolecules[current] || {};
+    const currentStructure = projectStructures[current];
+    const currentViewerState = projectViewerStates[current];
     const res = await window.api.showSaveDialog({
       title: 'Save Project',
       defaultPath: `${proj?.name || 'project'}.nexmol`,
@@ -104,10 +108,21 @@ const ProjectsPanel: React.FC = () => {
     const result = await saveProject({
       path: res.filePath,
       name: proj?.name || 'Untitled',
-      commands: projectLogs.map((l) => ({ prompt: l.prompt, ts: l.ts, status: l.status })),
+      commands: projectLogs.map((l) => ({
+        prompt: l.prompt,
+        ts: l.ts,
+        status: l.status,
+        resolver: l.resolver,
+        normalized_spec: l.normalizedSpec,
+        diagnostic: l.diagnostic,
+      })),
       notes: notes[current] || '',
       pdb_id: currentMolecule.pdbId,
       molecule_path: currentMolecule.filePath,
+      structure_data: currentStructure?.data,
+      structure_format: currentStructure?.format,
+      object_name: currentStructure?.objectName,
+      viewer_state: currentViewerState,
     });
     setSaving(false);
 
@@ -135,6 +150,36 @@ const ProjectsPanel: React.FC = () => {
     const result = await loadProject(filePath!);
     if (result.ok && result.data) {
       const d = result.data;
+      let structure = d.structure_data && d.structure_format
+        ? {
+            data: d.structure_data,
+            format: d.structure_format,
+            objectName: d.object_name || d.pdb_id || d.name,
+          }
+        : undefined;
+
+      if (!structure && d.molecule_path) {
+        const fileResult = await readStructureFile(d.molecule_path);
+        if (fileResult.ok && fileResult.data) {
+          structure = {
+            data: fileResult.data,
+            format: fileResult.format || 'pdb',
+            objectName: d.object_name || d.name || fileResult.name,
+          };
+        }
+      }
+
+      if (!structure && d.pdb_id) {
+        const fetchResult = await fetchStructureData(d.pdb_id);
+        if (fetchResult.ok && fetchResult.data) {
+          structure = {
+            data: fetchResult.data,
+            format: fetchResult.format || 'pdb',
+            objectName: d.object_name || d.pdb_id,
+          };
+        }
+      }
+
       const projectId = hydrateProject({
         name: d.name || 'Loaded Project',
         logs: (d.commands || []).map((c: any) => ({
@@ -142,12 +187,23 @@ const ProjectsPanel: React.FC = () => {
           ts: c.ts,
           status: c.status || 'success',
           message: '',
+          resolver: c.resolver,
+          normalizedSpec: c.normalized_spec,
+          diagnostic: c.diagnostic,
         })),
         notes: d.notes,
         molecule: { pdbId: d.pdb_id, filePath: d.molecule_path },
+        structure,
+        viewerState: d.viewer_state,
       });
       selectProject(projectId);
-      addLog({ prompt: 'Open project', status: 'success', message: `Loaded: ${d.name}` });
+      addLog({
+        prompt: 'Open project',
+        status: structure || (!d.pdb_id && !d.molecule_path) ? 'success' : 'error',
+        message: structure
+          ? `Loaded: ${d.name}`
+          : `Loaded metadata for ${d.name}, but the structure could not be restored.`,
+      });
       getRecentProjects().then(setRecentProjects).catch(() => {});
     } else {
       addLog({ prompt: 'Open project', status: 'error', message: result.error || 'Failed' });
@@ -431,14 +487,14 @@ const ToolBoxPanel: React.FC = () => {
         },
         {
           key: 'show_contacts',
-          label: 'Show Polar Contacts',
-          desc: 'Display polar contact distances between two targets.',
+          label: 'Show Polar Contacts (Staged)',
+          desc: 'Planned NexMol feature. Prompt support is preserved, but execution still needs backend contact calculation.',
           examples: ['Show polar contacts between ligand and residue ASP in chain B'],
         },
         {
           key: 'align_objects',
-          label: 'Align Objects',
-          desc: 'Align one named object to another.',
+          label: 'Align Objects (Staged)',
+          desc: 'Planned NexMol feature. Prompt support is preserved, but execution still needs backend alignment support.',
           examples: ['Align object ligand_pose to object receptor'],
         },
         {
@@ -527,8 +583,12 @@ const HelpPanel: React.FC = () => (
         Supported representations: cartoon, sticks, surface, spheres, lines, mesh, and dots.
       </div>
       <div className="rounded-xl bg-neutral-900 p-3 text-neutral-300">
-        Load a structure using the Molecules panel (PDB fetch or local file import),
-        then use natural language to control the 3D viewer.
+        Load a structure using the Molecules panel, then use short single-action prompts like
+        &nbsp;&quot;show ligand as sticks&quot; or &quot;color chain A red&quot;.
+      </div>
+      <div className="rounded-xl bg-neutral-900 p-3 text-neutral-300">
+        Staged commands such as contacts, alignment, and sequence view are preserved but may report
+        that they are not implemented yet.
       </div>
       <a
         className="block px-3 py-2 rounded-xl hover:bg-[#1F1F1F]"

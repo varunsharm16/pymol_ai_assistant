@@ -62,6 +62,12 @@ app.add_middleware(
 _IS_WINDOWS = platform.system() == "Windows"
 _CONFIG_DIR = Path.home() / ".nexmol"
 _CONFIG_PATH = _CONFIG_DIR / "config.json"
+_DEV_BACKEND_PORT_PATH = (
+    Path(__file__).resolve().parent.parent
+    / "pymol-ai-electron-ui"
+    / "public"
+    / "nexmol-backend-port.json"
+)
 DEFAULT_OPENAI_MODEL = "gpt-5.4-mini"
 
 RES_MAP = {
@@ -126,6 +132,9 @@ def _call_llm(prompt: str) -> dict:
     system_msg = (
         "You are a molecular visualization assistant. The user asks for exactly one simple action. "
         f"If the request contains multiple actions, respond with JSON error text: {json.dumps(ONLY_ONE_ACTION_ERROR)}.\n"
+        "Prefer currently supported native viewer commands whenever the prompt is about coloring, showing, hiding, isolating, removing, labeling, transparency, zooming, orienting, measuring distance, changing the background, rotating, or taking a snapshot.\n"
+        "When the user says selected, selection, or current selection, encode it as {\"kind\":\"current_selection\"}.\n"
+        "Do not invent unsupported target shapes.\n"
         "Respond with exactly one JSON OBJECT with keys:\n"
         " • name: one of "
         + ", ".join(f'"{k}"' for k in sorted(CANONICAL_ACTIONS | {"set_background", "rotate_view", "snapshot"}))
@@ -152,6 +161,9 @@ def _call_llm(prompt: str) -> dict:
         ' measure distance between ligand and residue ASP in chain B -> {"name":"measure_distance","arguments":{"source":{"kind":"ligand"},"target":{"kind":"residue","residue":"ASP","chain":"B"}}}\n'
         ' color protein by chain -> {"name":"color_by_chain","arguments":{"target":{"kind":"protein"}}}\n'
         ' color ligand by element -> {"name":"color_by_element","arguments":{"target":{"kind":"ligand"}}}\n'
+        ' make selected red -> {"name":"color_selection","arguments":{"target":{"kind":"current_selection"},"color":"red"}}\n'
+        ' hide everything except ligand -> {"name":"isolate_selection","arguments":{"target":{"kind":"ligand"},"representation":"sticks"}}\n'
+        ' set background to white -> {"name":"set_background","arguments":{"color":"white"}}\n'
     )
 
     resp = client.chat.completions.create(
@@ -472,7 +484,7 @@ def _update_recent(name: str, path_str: str) -> None:
     recent.insert(0, {
         "name": name,
         "path": path_str,
-        "saved_at": datetime.datetime.utcnow().isoformat() + "Z",
+        "saved_at": datetime.datetime.now(datetime.UTC).isoformat().replace("+00:00", "Z"),
     })
     recent = recent[:10]
     _RECENT_PROJECTS_PATH.write_text(json.dumps(recent, indent=2), encoding="utf-8")
@@ -487,6 +499,10 @@ async def save_project(request: Request) -> dict:
     notes = body.get("notes", "")
     pdb_id = body.get("pdb_id")
     molecule_path = body.get("molecule_path")
+    structure_data = body.get("structure_data")
+    structure_format = body.get("structure_format")
+    object_name = body.get("object_name")
+    viewer_state = body.get("viewer_state")
 
     if not file_path:
         return JSONResponse({"ok": False, "error": "No file path"}, status_code=400)
@@ -498,7 +514,11 @@ async def save_project(request: Request) -> dict:
         "notes": notes,
         "pdb_id": pdb_id,
         "molecule_path": molecule_path,
-        "saved_at": datetime.datetime.utcnow().isoformat() + "Z",
+        "structure_data": structure_data,
+        "structure_format": structure_format,
+        "object_name": object_name,
+        "viewer_state": viewer_state,
+        "saved_at": datetime.datetime.now(datetime.UTC).isoformat().replace("+00:00", "Z"),
     }
 
     try:
@@ -558,9 +578,22 @@ def _find_free_port() -> int:
         return s.getsockname()[1]
 
 
+def _publish_dev_backend_port(port: int) -> None:
+    """Best-effort publish of the backend port for browser-mode dev."""
+    try:
+        _DEV_BACKEND_PORT_PATH.parent.mkdir(parents=True, exist_ok=True)
+        _DEV_BACKEND_PORT_PATH.write_text(
+            json.dumps({"port": port}, indent=2),
+            encoding="utf-8",
+        )
+    except Exception as exc:
+        log.warning("Failed to publish browser dev backend port: %s", exc)
+
+
 if __name__ == "__main__":
     port = _find_free_port()
     # Handshake: Electron reads this line to discover our port
     print(f"NEXMOL_PORT={port}", flush=True)
+    _publish_dev_backend_port(port)
     log.info("NexMol backend starting on 127.0.0.1:%d", port)
     uvicorn.run(app, host="127.0.0.1", port=port, log_level="warning")

@@ -1,10 +1,11 @@
-"""Command normalization and selection compilation for the PyMOL assistant."""
+"""Command normalization and selection compilation for NexMol."""
 
 from __future__ import annotations
 
+import re
 from typing import Any
 
-ONLY_ONE_ACTION_ERROR = "Only one action is supported per request in v0.1.1-alpha."
+ONLY_ONE_ACTION_ERROR = "Only one action is supported per request in this NexMol build."
 
 LEGACY_ACTIONS = {
     "color_residue",
@@ -223,9 +224,105 @@ def describe_selection_spec(target: dict[str, Any], residue_map: dict[str, str] 
     return kind
 
 
+def _coerce_selection_spec(target: Any) -> dict[str, Any] | None:
+    if isinstance(target, dict):
+        coerced = dict(target)
+        kind = str(coerced.get("kind") or "").strip().lower()
+        if kind:
+            return coerced
+        if coerced.get("residue"):
+            coerced["kind"] = "residue"
+            return coerced
+        if coerced.get("atom") or coerced.get("name"):
+            coerced["kind"] = "atom"
+            return coerced
+        if coerced.get("chain"):
+            coerced["kind"] = "chain"
+            return coerced
+        if coerced.get("object"):
+            coerced["kind"] = "object"
+            return coerced
+        return coerced
+
+    if not isinstance(target, str):
+        return None
+
+    text = target.strip()
+    if not text:
+        return None
+
+    lower = text.lower()
+    simple_map = {
+        "all": "all",
+        "everything": "all",
+        "protein": "protein",
+        "ligand": "ligand",
+        "water": "water",
+        "waters": "water",
+        "solvent": "water",
+        "metal": "metals",
+        "metals": "metals",
+        "hydrogen": "hydrogens",
+        "hydrogens": "hydrogens",
+        "selection": "current_selection",
+        "selected": "current_selection",
+        "current selection": "current_selection",
+        "current_selection": "current_selection",
+    }
+    if lower in simple_map:
+        return {"kind": simple_map[lower]}
+
+    if lower.startswith("object "):
+        obj = text.split(None, 1)[1].strip()
+        return {"kind": "object", "object": obj} if obj else None
+
+    if lower.startswith("chain "):
+        chain = text.split(None, 1)[1].strip()
+        return {"kind": "chain", "chain": chain} if chain else None
+
+    residue_match = re.match(
+        r"^(?:residue\s+)?([A-Za-z]{1,3})(?:\s+(\d+[A-Za-z]?))?(?:\s+in\s+chain\s+([A-Za-z]))?(?:\s+in\s+object\s+([A-Za-z0-9_.-]+))?$",
+        text,
+        re.IGNORECASE,
+    )
+    if residue_match:
+        residue = normalize_residue_code(residue_match.group(1))
+        if residue:
+            coerced = {"kind": "residue", "residue": residue}
+            if residue_match.group(2):
+                coerced["resi"] = residue_match.group(2)
+            if residue_match.group(3):
+                coerced["chain"] = residue_match.group(3).upper()
+            if residue_match.group(4):
+                coerced["object"] = residue_match.group(4)
+            return coerced
+
+    atom_match = re.match(
+        r"^atom\s+([A-Za-z0-9'_*]+)(?:\s+in\s+residue\s+([A-Za-z]{1,3}))?(?:\s+(\d+[A-Za-z]?))?(?:\s+in\s+chain\s+([A-Za-z]))?(?:\s+in\s+object\s+([A-Za-z0-9_.-]+))?$",
+        text,
+        re.IGNORECASE,
+    )
+    if atom_match:
+        coerced = {"kind": "atom", "atom": atom_match.group(1).upper()}
+        if atom_match.group(2):
+            residue = normalize_residue_code(atom_match.group(2))
+            if residue:
+                coerced["residue"] = residue
+        if atom_match.group(3):
+            coerced["resi"] = atom_match.group(3)
+        if atom_match.group(4):
+            coerced["chain"] = atom_match.group(4).upper()
+        if atom_match.group(5):
+            coerced["object"] = atom_match.group(5)
+        return coerced
+
+    return None
+
+
 def normalize_selection_spec(
     target: dict[str, Any] | None, residue_map: dict[str, str] | None = None
 ) -> dict[str, Any]:
+    target = _coerce_selection_spec(target)
     if not isinstance(target, dict):
         raise ValueError("target must be an object")
 

@@ -7,10 +7,11 @@ import { RightPanels } from './components/RightPanels';
 import MoleculeViewer, { MoleculeViewerHandle } from './components/MoleculeViewer';
 import { useStore } from './store';
 import { Button } from './components/Button';
-import { Plus, Settings, Activity, Atom, MessageSquare, Box } from 'lucide-react';
+import { Settings, Activity, Atom, MessageSquare, Box, FolderKanban } from 'lucide-react';
 import ApiKeyModal from './components/ApiKeyModal';
 import OnboardingModal from './components/OnboardingModal';
 import { checkApiKey } from './lib/bridge';
+import { restoreViewerState } from './lib/viewerActions';
 
 // Global viewer ref accessible by other modules
 export let globalViewerRef: React.RefObject<MoleculeViewerHandle | null> = React.createRef();
@@ -19,8 +20,6 @@ type BottomTab = 'chat' | 'viewer';
 
 const Toolbar: React.FC = () => {
   const setPanel = useStore((s) => s.setRightPanel);
-  const forcePanel = useStore((s) => s.forceRightPanel);
-  const addLog = useStore((s) => s.addLog);
   const [showHelp, setShowHelp] = React.useState(false);
   const helpRef = React.useRef<HTMLDivElement>(null);
 
@@ -37,6 +36,10 @@ const Toolbar: React.FC = () => {
       <Button size="sm" onClick={() => setPanel('molecules')} className="app-no-drag">
         <Atom className="w-3.5 h-3.5 mr-1" />
         Molecules
+      </Button>
+      <Button size="sm" onClick={() => setPanel('projects')} className="app-no-drag">
+        <FolderKanban className="w-3.5 h-3.5 mr-1" />
+        Projects
       </Button>
       <Button size="sm" onClick={() => setPanel('notepad')} className="app-no-drag">
         Note Pad
@@ -108,6 +111,9 @@ const App: React.FC = () => {
   const setShowApiKeyModal = useStore((s) => s.setShowApiKeyModal);
   const setApiKeyConfigured = useStore((s) => s.setApiKeyConfigured);
   const forceRightPanel = useStore((s) => s.forceRightPanel);
+  const currentProjectId = useStore((s) => s.currentProjectId);
+  const currentProjectStructure = useStore((s) => s.projectStructures[s.currentProjectId]);
+  const addLogToProject = useStore((s) => s.addLogToProject);
   const [showOnboarding, setShowOnboarding] = React.useState(false);
   const [bottomTab, setBottomTab] = React.useState<BottomTab>('viewer');
   const onboardingKey = 'nexmol_onboarding_complete';
@@ -117,6 +123,51 @@ const App: React.FC = () => {
   React.useEffect(() => {
     (globalViewerRef as any).current = viewerRef.current;
   });
+
+  React.useEffect(() => {
+    let cancelled = false;
+
+    const restore = async () => {
+      const viewer = viewerRef.current;
+      if (!viewer) return;
+
+      if (!currentProjectStructure?.data) {
+        await viewer.clear();
+        return;
+      }
+
+      try {
+        await viewer.loadStructure(currentProjectStructure.data, currentProjectStructure.format, {
+          objectName: currentProjectStructure.objectName,
+        });
+
+        if (cancelled) return;
+
+        const latestViewerState = useStore.getState().projectViewerStates[currentProjectId];
+        const restoreErrors = await restoreViewerState(latestViewerState, viewer);
+        if (!cancelled && restoreErrors.length) {
+          addLogToProject(currentProjectId, {
+            prompt: 'Restore project scene',
+            status: 'error',
+            message: restoreErrors.join(' | '),
+          });
+        }
+      } catch (error: any) {
+        if (!cancelled) {
+          addLogToProject(currentProjectId, {
+            prompt: 'Restore project scene',
+            status: 'error',
+            message: error?.message || 'Failed to restore viewer scene.',
+          });
+        }
+      }
+    };
+
+    void restore();
+    return () => {
+      cancelled = true;
+    };
+  }, [addLogToProject, currentProjectId, currentProjectStructure]);
 
   // Check API key on mount
   React.useEffect(() => {

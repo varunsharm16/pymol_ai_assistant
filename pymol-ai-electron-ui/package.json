@@ -12,8 +12,8 @@
     "test:parser": "rimraf .tmp-tests && tsc -p tsconfig.test.json && node --test .tmp-tests/ui/lib/*.test.js"
   },
   "dependencies": {
-    "3dmol": "^2.4.2",
     "lucide-react": "0.539.0",
+    "molstar": "^4.18.0",
     "react": "18.2.0",
     "react-dom": "18.2.0",
     "zustand": "4.5.2"

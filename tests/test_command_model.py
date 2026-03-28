@@ -1,9 +1,9 @@
-"""Unit tests for generalized command normalization and selection compilation."""
+"""Unit tests for NexMol command normalization and selection compilation."""
 
 import importlib.util
 from pathlib import Path
 
-MODULE_PATH = Path(__file__).resolve().parent.parent / "plugin" / "command_model.py"
+MODULE_PATH = Path(__file__).resolve().parent.parent / "pymol-bridge" / "command_model.py"
 SPEC = importlib.util.spec_from_file_location("plugin_command_model", MODULE_PATH)
 command_model = importlib.util.module_from_spec(SPEC)
 assert SPEC and SPEC.loader
@@ -144,3 +144,77 @@ def test_compound_actions_are_rejected():
         assert str(exc) == ONLY_ONE_ACTION_ERROR
     else:
         raise AssertionError("Expected ValueError for compound action payload")
+
+
+def test_normalize_selection_spec_coerces_selected_string_target():
+    spec = normalize_command_spec(
+        {
+            "name": "color_selection",
+            "arguments": {
+                "target": "selected",
+                "color": "red",
+            },
+        }
+    )
+    assert spec == {
+        "name": "color_selection",
+        "arguments": {
+            "target": {"kind": "current_selection"},
+            "color": "red",
+        },
+    }
+
+
+def test_normalize_selection_spec_infers_object_kind_from_dict():
+    spec = normalize_command_spec(
+        {
+            "name": "zoom_selection",
+            "arguments": {
+                "target": {"object": "1crn"},
+            },
+        }
+    )
+    assert spec == {
+        "name": "zoom_selection",
+        "arguments": {
+            "target": {"kind": "object", "object": "1crn"},
+        },
+    }
+
+
+def test_normalize_selection_spec_coerces_residue_string_target():
+    spec = normalize_command_spec(
+        {
+            "name": "color_selection",
+            "arguments": {
+                "target": "residue asp 21 in chain b",
+                "color": "red",
+            },
+        }
+    )
+    assert spec == {
+        "name": "color_selection",
+        "arguments": {
+            "target": {"kind": "residue", "residue": "ASP", "resi": "21", "chain": "B"},
+            "color": "red",
+        },
+    }
+
+
+def test_normalize_selection_spec_coerces_atom_string_target():
+    spec = normalize_command_spec(
+        {
+            "name": "label_selection",
+            "arguments": {
+                "target": "atom ca in residue asp 21 in chain b",
+                "mode": "atom",
+            },
+        }
+    )
+    assert spec == {
+        "name": "label_selection",
+        "arguments": {
+            "target": {"kind": "atom", "atom": "CA", "residue": "ASP", "resi": "21", "chain": "B"},
+            "mode": "atom",
+        },
+    }

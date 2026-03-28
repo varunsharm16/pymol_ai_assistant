@@ -101,6 +101,8 @@ const SEQUENCE_FORMAT_ALIASES: Record<string, string> = {
   chains: 'chain_identifiers',
 };
 
+const COLOR_VERBS = '(?:color|colour|make|turn|paint|highlight)';
+
 function clean(text: string) {
   return text
     .trim()
@@ -243,9 +245,9 @@ export function parsePromptToSpec(input: string, options?: { selectionTag?: Sele
   }
 
   // Background
-  const bg = t.match(/(?:set\s+)?background|set\s+bg/i)
-    ? t.match(/(?:set\s+bg\s+to|set\s+background\s+to|background)\s+([a-z#0-9]+)/i)
-    : null;
+  const bg = t.match(
+    /^(?:set|make|turn|color|colour)\s+(?:the\s+)?(?:background|background color|bg)\s+(?:to\s+)?([a-z#0-9]+)$/i
+  );
   if (bg) return { name: 'set_background', arguments: { color: bg[1].toLowerCase() } };
 
   // Rotate
@@ -253,7 +255,9 @@ export function parsePromptToSpec(input: string, options?: { selectionTag?: Sele
   if (rot) return { name: 'rotate_view', arguments: { axis: rot[2].toUpperCase(), angle: Number(rot[1]) } };
 
   // Snapshot
-  const shot = t.match(/(?:save\s+)?snapshot(?:\s+(?:as|named|called))?(?:\s+(.+))?$/i);
+  const shot = t.match(
+    /^(?:save|take|capture|export)(?:\s+a)?(?:\s+png)?\s+(?:snapshot|picture|pic|image)(?:\s+(?:as|named|called))?(?:\s+(.+))?$/i
+  ) || t.match(/^(?:save\s+)?snapshot(?:\s+(?:as|named|called))?(?:\s+(.+))?$/i);
   if (shot) return { name: 'snapshot', arguments: { filename: (shot[1] || '').trim() } };
 
   // Sequence view
@@ -444,7 +448,7 @@ export function parsePromptToSpec(input: string, options?: { selectionTag?: Sele
 
   // Generic color commands
   const residueFamilyColor = t.match(
-    /^(?:color|colour)\s+(?:all\s+)?(.+?)\s+residues?(?:\s+in\s+chain\s+([A-Za-z]))?\s+([a-z#0-9]+)$/i
+    new RegExp(`^${COLOR_VERBS}\\s+(?:all\\s+)?(.+?)\\s+residues?(?:\\s+in\\s+chain\\s+([A-Za-z]))?\\s+(?:to\\s+)?([a-z#0-9]+)$`, 'i')
   );
   if (residueFamilyColor) {
     const residueName = normalizeResidue(residueFamilyColor[1]);
@@ -463,8 +467,8 @@ export function parsePromptToSpec(input: string, options?: { selectionTag?: Sele
     }
   }
 
-  const all = t.match(/color\s+all\s+([a-z#0-9]+)/i);
-  const allChains = t.match(/^(?:color|colour)\s+all\s+chains\s+([a-z#0-9]+)$/i);
+  const all = t.match(new RegExp(`^${COLOR_VERBS}\\s+all\\s+(?:to\\s+)?([a-z#0-9]+)$`, 'i'));
+  const allChains = t.match(new RegExp(`^${COLOR_VERBS}\\s+all\\s+chains\\s+(?:to\\s+)?([a-z#0-9]+)$`, 'i'));
   if (allChains) {
     return {
       name: 'color_selection',
@@ -473,7 +477,7 @@ export function parsePromptToSpec(input: string, options?: { selectionTag?: Sele
   }
   if (all) return { name: 'color_selection', arguments: { target: { kind: 'all' }, color: all[1].toLowerCase() } };
 
-  const chain = t.match(/color\s+chain\s+([A-Za-z])\s+([a-z#0-9]+)/i);
+  const chain = t.match(new RegExp(`^${COLOR_VERBS}\\s+chain\\s+([A-Za-z])\\s+(?:to\\s+)?([a-z#0-9]+)$`, 'i'));
   if (chain) {
     return {
       name: 'color_selection',
@@ -481,7 +485,7 @@ export function parsePromptToSpec(input: string, options?: { selectionTag?: Sele
     };
   }
 
-  const residue = t.match(/color\s+([A-Za-z]{1,3})\s+([a-z#0-9]+)(?:.*chain\s+([A-Za-z]))?/i);
+  const residue = t.match(new RegExp(`^${COLOR_VERBS}\\s+([A-Za-z]{1,3})\\s+(?:to\\s+)?([a-z#0-9]+)(?:.*chain\\s+([A-Za-z]))?$`, 'i'));
   if (residue) {
     return {
       name: 'color_selection',
@@ -496,7 +500,7 @@ export function parsePromptToSpec(input: string, options?: { selectionTag?: Sele
     };
   }
 
-  const genericColor = t.match(/(?:color|colour)\s+(.+?)\s+([a-z#0-9]+)$/i);
+  const genericColor = t.match(new RegExp(`^${COLOR_VERBS}\\s+(.+?)\\s+(?:to\\s+)?([a-z#0-9]+)$`, 'i'));
   if (genericColor) {
     const target = parseTarget(genericColor[1], selectionTag);
     if (target) {

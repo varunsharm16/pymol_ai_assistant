@@ -1,4 +1,4 @@
-"""Shared pytest fixtures for PyMOL AI Assistant bridge tests."""
+"""Shared pytest fixtures for NexMol backend tests."""
 import os
 import tempfile
 from pathlib import Path
@@ -9,11 +9,11 @@ from fastapi.testclient import TestClient
 
 @pytest.fixture(autouse=True)
 def _isolate_config(monkeypatch, tmp_path):
-    """Redirect ~/.pymol to a temp directory so tests don't pollute the real config."""
+    """Redirect the NexMol home dir to a temp location for test isolation."""
     fake_home = tmp_path / "home"
     fake_home.mkdir()
-    fake_pymol = fake_home / ".pymol"
-    fake_pymol.mkdir()
+    fake_nexmol = fake_home / ".nexmol"
+    fake_nexmol.mkdir()
 
     # Monkeypatch Path.home() to return our temp dir
     monkeypatch.setattr(Path, "home", staticmethod(lambda: fake_home))

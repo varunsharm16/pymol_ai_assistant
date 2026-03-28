@@ -37,6 +37,31 @@ test('parses sequence view format command', () => {
   });
 });
 
+test('parses deferred contacts command without dropping support', () => {
+  assert.deepEqual(
+    parsePromptToSpec('Show polar contacts between ligand and residue ASP in chain B'),
+    {
+      name: 'show_contacts',
+      arguments: {
+        source: { kind: 'ligand' },
+        target: { kind: 'residue', residue: 'ASP', chain: 'B' },
+        mode: 'polar',
+      },
+    }
+  );
+});
+
+test('parses deferred align command without dropping support', () => {
+  assert.deepEqual(parsePromptToSpec('Align object ligand_pose to object receptor'), {
+    name: 'align_objects',
+    arguments: {
+      mobile: { kind: 'object', object: 'ligand_pose' },
+      target: { kind: 'object', object: 'receptor' },
+      method: 'align',
+    },
+  });
+});
+
 test('parses transparency on protein', () => {
   assert.deepEqual(parsePromptToSpec('Set surface transparency to 0.4 on protein'), {
     name: 'set_transparency',
@@ -121,4 +146,52 @@ test('parses current selection tag with provided context', () => {
       },
     }
   );
+});
+
+test('parses make selected red deterministically', () => {
+  assert.deepEqual(parsePromptToSpec('Make selected red'), {
+    name: 'color_selection',
+    arguments: {
+      target: { kind: 'current_selection' },
+      color: 'red',
+    },
+  });
+});
+
+test('parses turn selected black deterministically', () => {
+  assert.deepEqual(parsePromptToSpec('Turn selected black'), {
+    name: 'color_selection',
+    arguments: {
+      target: { kind: 'current_selection' },
+      color: 'black',
+    },
+  });
+});
+
+test('parses highlight selected yellow deterministically', () => {
+  assert.deepEqual(parsePromptToSpec('Highlight selected yellow'), {
+    name: 'color_selection',
+    arguments: {
+      target: { kind: 'current_selection' },
+      color: 'yellow',
+    },
+  });
+});
+
+test('parses make background white deterministically', () => {
+  assert.deepEqual(parsePromptToSpec('Make the background white'), {
+    name: 'set_background',
+    arguments: {
+      color: 'white',
+    },
+  });
+});
+
+test('parses take a pic named figure.png deterministically', () => {
+  assert.deepEqual(parsePromptToSpec('Take a pic named figure.png'), {
+    name: 'snapshot',
+    arguments: {
+      filename: 'figure.png',
+    },
+  });
 });

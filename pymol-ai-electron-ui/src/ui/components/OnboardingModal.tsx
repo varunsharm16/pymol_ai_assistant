@@ -22,7 +22,7 @@ const STEPS = [
   {
     title: 'Prompting Tips',
     body:
-      'Use short single-action prompts like "show ligand as sticks" or "color chain A red". Quick Actions show the phrasing the parser understands best.',
+      'Use short single-action prompts like "show ligand as sticks", "color chain A red", or "set background to white". Quick Actions show the phrasing the deterministic parser understands best.',
     icon: KeyRound,
   },
 ];

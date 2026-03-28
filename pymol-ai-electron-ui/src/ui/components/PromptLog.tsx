@@ -13,6 +13,11 @@ function extensionLabel(format: ExportFormat) {
   return 'DOCX';
 }
 
+function specSummary(spec?: { name: string; arguments?: Record<string, any> }) {
+  if (!spec) return '';
+  return spec.name.replace(/_/g, ' ');
+}
+
 export const PromptLog: React.FC = () => {
   const currentId = useStore((s) => s.currentProjectId);
   const project = useStore((s) => s.projects.find((entry) => entry.id === s.currentProjectId));
@@ -136,6 +141,14 @@ export const PromptLog: React.FC = () => {
             </span>
             <div className="flex flex-col leading-tight">
               <div className="text-neutral-100">“{entry.prompt}”</div>
+              {(entry.resolver || entry.normalizedSpec) && (
+                <div
+                  className="text-[11px] text-neutral-500"
+                  title={entry.normalizedSpec ? JSON.stringify(entry.normalizedSpec, null, 2) : undefined}
+                >
+                  {[entry.resolver, specSummary(entry.normalizedSpec)].filter(Boolean).join(' • ')}
+                </div>
+              )}
               <div className="text-[12px] text-neutral-400">
                 {new Date(entry.ts).toLocaleTimeString()} • {entry.message}
               </div>

@@ -1,13 +1,22 @@
 import type { MoleculeViewerHandle, SelectionSpec } from '../components/MoleculeViewer';
+import type { NormalizedSpec, ViewerState } from '../store';
+
+const DEFERRED_MESSAGES: Record<string, string> = {
+  show_contacts: 'Show contacts is staged for NexMol but not implemented yet.',
+  align_objects: 'Align objects is staged for NexMol but still needs backend alignment support.',
+  show_sequence_view: 'Sequence view is staged for NexMol but not implemented yet.',
+  hide_sequence_view: 'Sequence view is staged for NexMol but not implemented yet.',
+  set_sequence_view_format: 'Sequence view formatting is staged for NexMol but not implemented yet.',
+};
 
 /**
  * Execute a normalized command spec against the MoleculeViewer.
  * Returns a human-readable message for the command log.
  */
-export function executeCommandSpec(
-  spec: { name: string; arguments?: Record<string, any> },
+export async function executeCommandSpec(
+  spec: NormalizedSpec,
   viewer: MoleculeViewerHandle
-): { ok: boolean; message: string } {
+): Promise<{ ok: boolean; message: string }> {
   const { name, arguments: args = {} } = spec;
 
   try {
@@ -16,7 +25,7 @@ export function executeCommandSpec(
         const target = args.target as SelectionSpec;
         const repr = args.representation as string;
         if (!target || !repr) return { ok: false, message: 'Missing target or representation' };
-        viewer.showRepresentation(target, repr);
+        await viewer.showRepresentation(target, repr);
         return { ok: true, message: `Showing ${repr} for ${describeSelection(target)}` };
       }
 
@@ -24,21 +33,21 @@ export function executeCommandSpec(
         const target = args.target as SelectionSpec;
         const repr = args.representation as string;
         if (!target) return { ok: false, message: 'Missing target' };
-        viewer.hideRepresentation(target, repr || 'everything');
+        await viewer.hideRepresentation(target, repr || 'everything');
         return { ok: true, message: `Hidden ${repr || 'everything'} for ${describeSelection(target)}` };
       }
 
       case 'isolate_selection': {
         const target = args.target as SelectionSpec;
         if (!target) return { ok: false, message: 'Missing target' };
-        viewer.isolateSelection(target, args.representation);
+        await viewer.isolateSelection(target, args.representation);
         return { ok: true, message: `Isolated ${describeSelection(target)}` };
       }
 
       case 'remove_selection': {
         const target = args.target as SelectionSpec;
         if (!target) return { ok: false, message: 'Missing target' };
-        viewer.removeSelection(target);
+        await viewer.removeSelection(target);
         return { ok: true, message: `Removed ${describeSelection(target)}` };
       }
 
@@ -46,21 +55,21 @@ export function executeCommandSpec(
         const target = args.target as SelectionSpec;
         const color = args.color as string;
         if (!target || !color) return { ok: false, message: 'Missing target or color' };
-        viewer.colorSelection(target, color);
+        await viewer.colorSelection(target, color);
         return { ok: true, message: `Colored ${describeSelection(target)} ${color}` };
       }
 
       case 'color_by_chain': {
         const target = args.target as SelectionSpec;
         if (!target) return { ok: false, message: 'Missing target' };
-        viewer.colorByChain(target);
+        await viewer.colorByChain(target);
         return { ok: true, message: `Colored ${describeSelection(target)} by chain` };
       }
 
       case 'color_by_element': {
         const target = args.target as SelectionSpec;
         if (!target) return { ok: false, message: 'Missing target' };
-        viewer.colorByElement(target);
+        await viewer.colorByElement(target);
         return { ok: true, message: `Colored ${describeSelection(target)} by element` };
       }
 
@@ -69,7 +78,7 @@ export function executeCommandSpec(
         const value = args.value as number;
         const repr = (args.representation as string) || 'surface';
         if (!target || value == null) return { ok: false, message: 'Missing target or value' };
-        viewer.setTransparency(target, value, repr);
+        await viewer.setTransparency(target, value, repr);
         return { ok: true, message: `Set ${repr} transparency to ${value} on ${describeSelection(target)}` };
       }
 
@@ -77,21 +86,21 @@ export function executeCommandSpec(
         const target = args.target as SelectionSpec;
         const mode = (args.mode as string) || 'residue';
         if (!target) return { ok: false, message: 'Missing target' };
-        viewer.labelSelection(target, mode);
+        await viewer.labelSelection(target, mode);
         return { ok: true, message: `Labeled ${describeSelection(target)} (${mode} mode)` };
       }
 
       case 'zoom_selection': {
         const target = args.target as SelectionSpec;
         if (!target) return { ok: false, message: 'Missing target' };
-        viewer.zoomTo(target);
+        await viewer.zoomTo(target);
         return { ok: true, message: `Zoomed to ${describeSelection(target)}` };
       }
 
       case 'orient_selection': {
         const target = args.target as SelectionSpec;
         if (!target) return { ok: false, message: 'Missing target' };
-        viewer.orientSelection(target);
+        await viewer.orientSelection(target);
         return { ok: true, message: `Oriented on ${describeSelection(target)}` };
       }
 
@@ -99,40 +108,43 @@ export function executeCommandSpec(
         const source = args.source as SelectionSpec;
         const target = args.target as SelectionSpec;
         if (!source || !target) return { ok: false, message: 'Missing source or target' };
-        viewer.measureDistance(source, target);
+        await viewer.measureDistance(source, target);
         return { ok: true, message: `Measured distance between ${describeSelection(source)} and ${describeSelection(target)}` };
       }
 
       case 'set_background': {
         const color = args.color as string;
         if (!color) return { ok: false, message: 'Missing color' };
-        viewer.setBackground(color);
+        await viewer.setBackground(color);
         return { ok: true, message: `Background set to ${color}` };
       }
 
       case 'rotate_view': {
         if (args.axis && args.angle != null) {
-          viewer.rotateView(args.axis, args.angle);
+          await viewer.rotateView(args.axis, args.angle);
           return { ok: true, message: `Rotated ${args.angle}° around ${args.axis}` };
         }
         // Handle multi-axis rotation
         for (const axis of ['x', 'y', 'z']) {
           const val = args[axis] ?? args[`rotate_${axis}`];
           if (typeof val === 'number' && val !== 0) {
-            viewer.rotateView(axis.toUpperCase(), val);
+            await viewer.rotateView(axis.toUpperCase(), val);
           }
         }
         if (args.rotation && Array.isArray(args.rotation)) {
           const axes = ['X', 'Y', 'Z'];
-          args.rotation.forEach((val: number, i: number) => {
-            if (val !== 0) viewer.rotateView(axes[i], val);
-          });
+          for (let i = 0; i < args.rotation.length; i += 1) {
+            const val = args.rotation[i];
+            if (val !== 0) {
+              await viewer.rotateView(axes[i], val);
+            }
+          }
         }
         return { ok: true, message: 'View rotated' };
       }
 
       case 'snapshot': {
-        const dataUri = viewer.snapshot();
+        const dataUri = await viewer.snapshot();
         if (!dataUri) return { ok: false, message: 'No viewer available for snapshot' };
         // Trigger download
         const link = document.createElement('a');
@@ -142,12 +154,111 @@ export function executeCommandSpec(
         return { ok: true, message: `Snapshot saved as ${args.filename || 'nexmol-snapshot.png'}` };
       }
 
+      case 'show_contacts':
+      case 'align_objects':
+      case 'show_sequence_view':
+      case 'hide_sequence_view':
+      case 'set_sequence_view_format':
+        return { ok: false, message: DEFERRED_MESSAGES[name] };
+
       default:
         return { ok: false, message: `Unknown command: ${name}` };
     }
   } catch (err: any) {
     return { ok: false, message: err?.message || `Failed to execute ${name}` };
   }
+}
+
+function cloneSpec<T>(value: T): T {
+  return JSON.parse(JSON.stringify(value));
+}
+
+function operationKey(spec: NormalizedSpec): string | null {
+  const args = spec.arguments || {};
+  switch (spec.name) {
+    case 'color_selection':
+    case 'color_by_chain':
+    case 'color_by_element':
+      return `color:${JSON.stringify(args.target || {})}`;
+    case 'set_transparency':
+    case 'remove_selection':
+      return `transparency:${JSON.stringify(args.target || {})}:${args.representation || 'all'}`;
+    case 'label_selection':
+      return `label:${JSON.stringify(args.target || {})}:${args.mode || 'residue'}`;
+    case 'measure_distance':
+      return `distance:${JSON.stringify(args.source || {})}:${JSON.stringify(args.target || {})}`;
+    case 'show_representation':
+    case 'hide_representation':
+      return `representation:${spec.name}:${JSON.stringify(args.target || {})}:${args.representation || 'default'}`;
+    case 'isolate_selection':
+      return `isolate:${JSON.stringify(args.target || {})}:${args.representation || 'default'}`;
+    default:
+      return null;
+  }
+}
+
+function shouldPersistOperation(spec: NormalizedSpec): boolean {
+  return ![
+    'snapshot',
+    'set_background',
+    'rotate_view',
+    'zoom_selection',
+    'orient_selection',
+  ].includes(spec.name);
+}
+
+export function updateViewerStateAfterCommand(
+  current: ViewerState | undefined,
+  spec: NormalizedSpec,
+  snapshot: { backgroundColor?: string; cameraSnapshot?: any }
+): ViewerState {
+  const nextOperations = [...(current?.operations || [])];
+  if (shouldPersistOperation(spec)) {
+    const cloned = cloneSpec(spec);
+    const key = operationKey(cloned);
+    if (key) {
+      const index = nextOperations.findIndex((op) => operationKey(op) === key);
+      if (index >= 0) {
+        nextOperations[index] = cloned;
+      } else {
+        nextOperations.push(cloned);
+      }
+    } else {
+      nextOperations.push(cloned);
+    }
+  }
+
+  return {
+    backgroundColor: snapshot.backgroundColor,
+    cameraSnapshot: snapshot.cameraSnapshot ? cloneSpec(snapshot.cameraSnapshot) : undefined,
+    operations: nextOperations,
+  };
+}
+
+export async function restoreViewerState(
+  viewerState: ViewerState | undefined,
+  viewer: MoleculeViewerHandle
+): Promise<string[]> {
+  if (!viewerState) return [];
+
+  const errors: string[] = [];
+  for (const op of viewerState.operations || []) {
+    const result = await executeCommandSpec(op, viewer);
+    if (!result.ok) {
+      errors.push(`${op.name}: ${result.message}`);
+    }
+  }
+
+  try {
+    await viewer.applySceneSnapshot({
+      backgroundColor: viewerState.backgroundColor,
+      cameraSnapshot: viewerState.cameraSnapshot,
+    });
+  } catch (error: any) {
+    errors.push(error?.message || 'Failed to restore viewer scene snapshot.');
+  }
+
+  return errors;
 }
 
 /**

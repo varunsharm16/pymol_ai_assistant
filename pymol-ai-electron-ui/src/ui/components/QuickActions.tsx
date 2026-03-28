@@ -27,7 +27,7 @@ const PROMPTS: string[] = [
   'Colour serine (SER) residues in chain D #FF00FF',
   'Color all leucine residues orange',
   'Colour P in magenta',
-  '"Color all Lys in chain B red."',
+  'Color all Lys in chain B red',
 
   // --- Color by chain ---
   'Color chain A purple',
@@ -39,8 +39,8 @@ const PROMPTS: string[] = [
   // --- Color all ---
   'Color the entire molecule red',
   'colour everything grey',
-  'Make the whole protein hotpink.',
-  'color green',
+  'Make the whole protein magenta',
+  'color protein green',
 
   // --- Views / camera (single axis) ---
   'Rotate 45 degrees around X',
@@ -78,14 +78,14 @@ const PROMPTS: string[] = [
   'Save a PNG snapshot named test.png',
   'Save snapshot as my_view',
   'Save a snapshot called model1.png',
-  'Take a pic named 123',
+  'Take a pic named figure.png',
 
 
   // --- Background / style ---
   'Set bg to white',
   'Set background to #FFE000',
   'Set the background color to black.',
-  'colour background lightblue',
+  'Colour background white',
   'Make the background white',
   'Set background to #202020.',
 

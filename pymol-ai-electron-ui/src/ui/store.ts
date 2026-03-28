@@ -6,6 +6,12 @@ export type LogEntry = {
   prompt: string;
   status: 'pending' | 'success' | 'error';
   message: string;
+  resolver?: 'parser' | 'llm';
+  normalizedSpec?: {
+    name: string;
+    arguments?: Record<string, any>;
+  };
+  diagnostic?: string;
 };
 
 export type Project = {
@@ -34,6 +40,23 @@ export type MoleculeInfo = {
   name?: string;
 };
 
+export type ProjectStructure = {
+  data: string;
+  format: string;
+  objectName?: string;
+};
+
+export type NormalizedSpec = {
+  name: string;
+  arguments?: Record<string, any>;
+};
+
+export type ViewerState = {
+  backgroundColor?: string;
+  cameraSnapshot?: any;
+  operations: NormalizedSpec[];
+};
+
 type Right =
   | 'none'
   | 'projects'
@@ -50,6 +73,8 @@ type State = {
   logs: Record<string, LogEntry[]>;
   notes: Record<string, string>;
   projectMolecules: Record<string, MoleculeInfo>;
+  projectStructures: Record<string, ProjectStructure | undefined>;
+  projectViewerStates: Record<string, ViewerState | undefined>;
   draft: string;
   ui: { rightPanel: Right; quickActionsExpanded: boolean };
 
@@ -83,12 +108,18 @@ type State = {
   setRecentProjects: (p: RecentProject[]) => void;
   setProjectMolecule: (projectId: string, molecule: MoleculeInfo) => void;
   setCurrentProjectMolecule: (molecule: MoleculeInfo) => void;
+  setProjectStructure: (projectId: string, structure?: ProjectStructure) => void;
+  setCurrentProjectStructure: (structure?: ProjectStructure) => void;
+  setProjectViewerState: (projectId: string, viewerState?: ViewerState) => void;
+  setCurrentProjectViewerState: (viewerState?: ViewerState) => void;
   hydrateProjectFromLoadedFile: (opts: {
     id?: string;
     name: string;
     logs?: Array<Partial<LogEntry>>;
     notes?: string;
     molecule?: MoleculeInfo;
+    structure?: ProjectStructure;
+    viewerState?: ViewerState;
   }) => string;
   setSwitchingProject: (value: boolean) => void;
   resetWorkspace: (name?: string) => string;
@@ -114,6 +145,8 @@ function createWorkspaceState(name = 'New Project') {
     logs: { [project.id]: [] as LogEntry[] },
     notes: { [project.id]: '' },
     projectMolecules: { [project.id]: {} as MoleculeInfo },
+    projectStructures: { [project.id]: undefined as ProjectStructure | undefined },
+    projectViewerStates: { [project.id]: { operations: [] } as ViewerState },
   };
 }
 
@@ -125,6 +158,8 @@ export const useStore = create<State>((set, get) => ({
   logs: initialWorkspace.logs,
   notes: initialWorkspace.notes,
   projectMolecules: initialWorkspace.projectMolecules,
+  projectStructures: initialWorkspace.projectStructures,
+  projectViewerStates: initialWorkspace.projectViewerStates,
   draft: '',
   ui: { rightPanel: 'none', quickActionsExpanded: false },
 
@@ -166,23 +201,52 @@ export const useStore = create<State>((set, get) => ({
   createProject: (name) => {
     const p = createProjectRecord(name);
     set((s) => ({
+      currentProjectId: p.id,
       projects: [p, ...s.projects],
       logs: { ...s.logs, [p.id]: [] },
       notes: { ...s.notes, [p.id]: '' },
       projectMolecules: { ...s.projectMolecules, [p.id]: {} },
+      projectStructures: { ...s.projectStructures, [p.id]: undefined },
+      projectViewerStates: { ...s.projectViewerStates, [p.id]: { operations: [] } },
       pendingRenameId: p.id,
     }));
     return p.id;
   },
   deleteProject: (id) =>
-    set((s) => ({
-      projects: s.projects.filter((p) => p.id !== id),
-      logs: Object.fromEntries(Object.entries(s.logs).filter(([key]) => key !== id)),
-      notes: Object.fromEntries(Object.entries(s.notes).filter(([key]) => key !== id)),
-      projectMolecules: Object.fromEntries(
+    set((s) => {
+      const remainingProjects = s.projects.filter((p) => p.id !== id);
+      const fallbackProject = remainingProjects[0] || createProjectRecord('New Project');
+      const logs = Object.fromEntries(Object.entries(s.logs).filter(([key]) => key !== id));
+      const notes = Object.fromEntries(Object.entries(s.notes).filter(([key]) => key !== id));
+      const projectMolecules = Object.fromEntries(
         Object.entries(s.projectMolecules).filter(([key]) => key !== id)
-      ),
-    })),
+      );
+      const projectStructures = Object.fromEntries(
+        Object.entries(s.projectStructures).filter(([key]) => key !== id)
+      );
+      const projectViewerStates = Object.fromEntries(
+        Object.entries(s.projectViewerStates).filter(([key]) => key !== id)
+      );
+
+      if (!remainingProjects.length) {
+        logs[fallbackProject.id] = [];
+        notes[fallbackProject.id] = '';
+        projectMolecules[fallbackProject.id] = {};
+        projectStructures[fallbackProject.id] = undefined;
+        projectViewerStates[fallbackProject.id] = { operations: [] };
+      }
+
+      return {
+        currentProjectId:
+          s.currentProjectId === id ? fallbackProject.id : s.currentProjectId,
+        projects: remainingProjects.length ? remainingProjects : [fallbackProject],
+        logs,
+        notes,
+        projectMolecules,
+        projectStructures,
+        projectViewerStates,
+      };
+    }),
   addLog: (entry) => get().addLogToProject(get().currentProjectId, entry),
   addLogToProject: (projectId, entry) => {
     const id = uid();
@@ -226,7 +290,23 @@ export const useStore = create<State>((set, get) => ({
     const projectId = get().currentProjectId;
     get().setProjectMolecule(projectId, molecule);
   },
-  hydrateProjectFromLoadedFile: ({ id, name, logs, notes, molecule }) => {
+  setProjectStructure: (projectId, structure) =>
+    set((s) => ({
+      projectStructures: { ...s.projectStructures, [projectId]: structure },
+    })),
+  setCurrentProjectStructure: (structure) => {
+    const projectId = get().currentProjectId;
+    get().setProjectStructure(projectId, structure);
+  },
+  setProjectViewerState: (projectId, viewerState) =>
+    set((s) => ({
+      projectViewerStates: { ...s.projectViewerStates, [projectId]: viewerState },
+    })),
+  setCurrentProjectViewerState: (viewerState) => {
+    const projectId = get().currentProjectId;
+    get().setProjectViewerState(projectId, viewerState);
+  },
+  hydrateProjectFromLoadedFile: ({ id, name, logs, notes, molecule, structure, viewerState }) => {
     const projectId = id || uid();
     const project: Project = {
       id: projectId,
@@ -251,6 +331,11 @@ export const useStore = create<State>((set, get) => ({
       },
       notes: { ...s.notes, [projectId]: notes || '' },
       projectMolecules: { ...s.projectMolecules, [projectId]: molecule || {} },
+      projectStructures: { ...s.projectStructures, [projectId]: structure },
+      projectViewerStates: {
+        ...s.projectViewerStates,
+        [projectId]: viewerState || { operations: [] },
+      },
     }));
     return projectId;
   },
@@ -263,6 +348,8 @@ export const useStore = create<State>((set, get) => ({
       logs: workspace.logs,
       notes: workspace.notes,
       projectMolecules: workspace.projectMolecules,
+      projectStructures: workspace.projectStructures,
+      projectViewerStates: workspace.projectViewerStates,
       pendingRenameId: null,
       switchingProject: false,
       draft: '',

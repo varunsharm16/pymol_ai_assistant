@@ -1,5 +1,6 @@
 let _baseUrl: string | null = null;
 const MAX_RETRIES = 5;
+const DEV_PORT_FILE = 'nexmol-backend-port.json';
 
 export type BridgeProgress = {
   phase: 'sending' | 'retrying' | 'waiting' | 'success' | 'error';
@@ -40,6 +41,26 @@ declare global {
 // Base URL discovery
 // ---------------------------------------------------------------------------
 
+async function getBrowserPublishedPort(): Promise<number | null> {
+  try {
+    const url = new URL(`./${DEV_PORT_FILE}`, window.location.href);
+    url.searchParams.set('ts', String(Date.now()));
+
+    const res = await fetch(url.toString(), {
+      method: 'GET',
+      cache: 'no-store',
+    });
+    if (!res.ok) return null;
+
+    const body = await res.json().catch(() => null) as { port?: unknown } | null;
+    const port = Number(body?.port);
+    if (!Number.isInteger(port) || port <= 0) return null;
+    return port;
+  } catch {
+    return null;
+  }
+}
+
 async function getBaseUrl(): Promise<string> {
   if (_baseUrl) return _baseUrl;
 
@@ -50,6 +71,7 @@ async function getBaseUrl(): Promise<string> {
       _baseUrl = `http://127.0.0.1:${port}`;
       return _baseUrl;
     }
+    throw new Error('Backend port not ready yet');
   }
 
   // Allow ?port= query param override for dev-in-browser
@@ -60,11 +82,16 @@ async function getBaseUrl(): Promise<string> {
     return _baseUrl;
   }
 
-  // Fallback: not in Electron, port unknown — backend must be started manually
-  // Show a console warning so devs know what's happening
+  const browserPort = await getBrowserPublishedPort();
+  if (browserPort) {
+    _baseUrl = `http://127.0.0.1:${browserPort}`;
+    return _baseUrl;
+  }
+
+  // Final fallback: not in Electron, and no published port file was found.
   console.warn(
-    '[NexMol] No Electron IPC available. Backend port unknown.\n' +
-    'If running in browser, start the backend manually and add ?port=XXXXX to the URL.'
+    '[NexMol] No Electron IPC or published backend port was found.\n' +
+    'If running in browser, start the backend manually on port 8000 or add ?port=XXXXX to the URL.'
   );
   _baseUrl = 'http://127.0.0.1:8000';
   return _baseUrl;
@@ -94,7 +121,8 @@ async function apiFetch<T = any>(
     }
     return { ok: true, data: body as T, status: res.status };
   } catch (e: any) {
-    return { ok: false, error: e?.message || 'Backend unreachable' };
+    _baseUrl = null;
+    return { ok: false, error: e?.message || 'Backend unreachable', status: 503 };
   }
 }
 
@@ -229,6 +257,9 @@ export async function readStructureFile(
 
 export async function checkApiKey(): Promise<boolean> {
   const res = await apiFetch<{ configured: boolean }>('/api-key');
+  if (!res.ok && isRetryable(res)) {
+    throw new Error(res.error || 'Backend unavailable');
+  }
   return res.data?.configured ?? false;
 }
 
@@ -288,13 +319,15 @@ export async function getPdbInfo(pdbId: string): Promise<{
   resolution?: number | null;
   error?: string;
 }> {
-  const res = await apiFetch<{
+  const res = await requestWithRetry<{
     ok: boolean;
     pdb_id: string;
     title: string;
     method: string;
     resolution: number | null;
-  }>(`/pdb-info/${encodeURIComponent(pdbId.trim().toUpperCase())}`);
+  }>(`/pdb-info/${encodeURIComponent(pdbId.trim().toUpperCase())}`, {
+    method: 'GET',
+  });
   if (res.ok && res.data) return res.data;
   return { ok: false, error: res.error };
 }
@@ -334,6 +367,10 @@ export async function saveProject(opts: {
   notes?: string;
   pdb_id?: string;
   molecule_path?: string;
+  structure_data?: string;
+  structure_format?: string;
+  object_name?: string;
+  viewer_state?: any;
 }): Promise<{ ok: boolean; path?: string; error?: string }> {
   const res = await post('/projects/save', opts);
   if (res.ok && res.data) return res.data;
