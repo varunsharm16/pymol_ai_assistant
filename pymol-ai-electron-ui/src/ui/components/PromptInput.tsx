@@ -5,6 +5,19 @@ import { sendNL } from '../lib/bridge';
 import { parsePromptToSpec } from '../lib/parse';
 import { executeCommandSpec, updateViewerStateAfterCommand } from '../lib/viewerActions';
 import { globalViewerRef } from '../App';
+import type { ViewerSelectionSpec } from '../store';
+
+function formatSelectionTag(selection: ViewerSelectionSpec): string {
+  if (selection.kind !== 'residue') {
+    if (selection.kind === 'chain') return `#Chain${selection.chain}`;
+    return `#${selection.kind}`;
+  }
+
+  const residue = selection.residue || 'UNK';
+  const resi = selection.resi || '?';
+  const chain = selection.chain || '?';
+  return `#${residue}${resi}/Chain${chain}`;
+}
 
 export const PromptInput: React.FC = () => {
   const draft = useStore((s) => s.draft);
@@ -13,6 +26,10 @@ export const PromptInput: React.FC = () => {
   const addLogToProject = useStore((s) => s.addLogToProject);
   const updateLogEntry = useStore((s) => s.updateLogEntry);
   const setProjectViewerState = useStore((s) => s.setProjectViewerState);
+  const viewerReady = useStore((s) => s.viewerReady);
+  const currentViewerSelection = useStore((s) => s.currentViewerSelection);
+  const activeViewerSelections = useStore((s) => s.activeViewerSelections);
+  const selectedResiduePair = useStore((s) => s.selectedResiduePair);
   const [sendingProjects, setSendingProjects] = React.useState<Record<string, number>>({});
   const sending = Boolean(sendingProjects[currentProjectId]);
 
@@ -41,8 +58,8 @@ export const PromptInput: React.FC = () => {
    */
   const executeSpec = React.useCallback(async (spec: { name: string; arguments?: Record<string, any> }) => {
     const viewer = globalViewerRef.current;
-    if (!viewer) {
-      return { ok: false, message: 'Viewer not ready. Load a structure first.' };
+    if (!viewer || !viewerReady) {
+      return { ok: false, message: 'Viewer is still starting. Wait a moment and try again.' };
     }
 
     // Snapshot with file picker
@@ -77,7 +94,7 @@ export const PromptInput: React.FC = () => {
     }
 
     return executeCommandSpec(spec, viewer);
-  }, []);
+  }, [viewerReady]);
 
   const persistViewerState = React.useCallback(async (
     projectId: string,
@@ -187,6 +204,40 @@ export const PromptInput: React.FC = () => {
 
   return (
     <div className="p-3 pt-2 flex flex-col gap-1.5">
+      {activeViewerSelections.length > 0 && (
+        <div className="flex flex-wrap gap-2">
+          {activeViewerSelections.map((selection, index) => {
+            const isCurrent =
+              currentViewerSelection != null &&
+              JSON.stringify(currentViewerSelection) === JSON.stringify(selection);
+            const isMeasurementSelection = selectedResiduePair.some(
+              (pairSelection) => JSON.stringify(pairSelection) === JSON.stringify(selection)
+            );
+            return (
+              <div
+                key={`${selection.kind}:${selection.kind === 'residue' ? `${selection.residue}:${selection.resi}:${selection.chain}` : index}`}
+                className={`rounded-full border px-3 py-1 text-xs ${
+                  isCurrent
+                    ? 'border-brand bg-brand/15 text-brand'
+                    : isMeasurementSelection
+                      ? 'border-neutral-500 bg-[#2A2A2A] text-neutral-100'
+                      : 'border-neutral-700 bg-[#202020] text-neutral-300'
+                }`}
+                title={
+                  isCurrent
+                    ? 'Current selection'
+                    : isMeasurementSelection
+                      ? 'Used for measure distance between selected'
+                      : 'Active selected residue'
+                }
+              >
+                {isCurrent ? 'Current ' : isMeasurementSelection ? 'Measure ' : 'Selected '}
+                {formatSelectionTag(selection)}
+              </div>
+            );
+          })}
+        </div>
+      )}
       <div className="flex items-center">
         <input
           id="prompt-input"

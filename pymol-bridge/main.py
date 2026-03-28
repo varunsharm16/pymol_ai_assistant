@@ -133,7 +133,8 @@ def _call_llm(prompt: str) -> dict:
         "You are a molecular visualization assistant. The user asks for exactly one simple action. "
         f"If the request contains multiple actions, respond with JSON error text: {json.dumps(ONLY_ONE_ACTION_ERROR)}.\n"
         "Prefer currently supported native viewer commands whenever the prompt is about coloring, showing, hiding, isolating, removing, labeling, clearing labels, transparency, zooming, measuring distance, changing the background, rotating, or taking a snapshot.\n"
-        "When the user says selected, selection, or current selection, encode it as {\"kind\":\"current_selection\"}.\n"
+        "When the user says selected or selection, encode it as {\"kind\":\"active_selection\"}. "
+        "When the user says current selection, encode it as {\"kind\":\"current_selection\"}.\n"
         "Do not invent unsupported target shapes.\n"
         "Respond with exactly one JSON OBJECT with keys:\n"
         " • name: one of "
@@ -147,6 +148,8 @@ def _call_llm(prompt: str) -> dict:
         ' • {"kind":"water"}\n'
         ' • {"kind":"metals"}\n'
         ' • {"kind":"hydrogens"}\n'
+        ' • {"kind":"active_selection"}\n'
+        ' • {"kind":"current_selection"}\n'
         ' • {"kind":"chain","chain":"A"}\n'
         ' • {"kind":"residue","residue":"ASP","resi":"21","chain":"B"}\n'
         ' • {"kind":"atom","atom":"CA","residue":"ASP","resi":"21","chain":"B"}\n'
@@ -158,11 +161,14 @@ def _call_llm(prompt: str) -> dict:
         ' show ligand as sticks -> {"name":"show_representation","arguments":{"target":{"kind":"ligand"},"representation":"sticks"}}\n'
         ' label residues in chain A -> {"name":"label_selection","arguments":{"target":{"kind":"chain","chain":"A"},"mode":"residue"}}\n'
         ' clear labels -> {"name":"clear_labels","arguments":{}}\n'
+        ' clear selected label -> {"name":"clear_labels","arguments":{"target":{"kind":"active_selection"}}}\n'
         ' set surface transparency to 0.4 on protein -> {"name":"set_transparency","arguments":{"target":{"kind":"protein"},"representation":"surface","value":0.4}}\n'
         ' measure distance between ligand and residue ASP in chain B -> {"name":"measure_distance","arguments":{"source":{"kind":"ligand"},"target":{"kind":"residue","residue":"ASP","chain":"B"}}}\n'
         ' color protein by chain -> {"name":"color_by_chain","arguments":{"target":{"kind":"protein"}}}\n'
         ' color ligand by element -> {"name":"color_by_element","arguments":{"target":{"kind":"ligand"}}}\n'
-        ' make selected red -> {"name":"color_selection","arguments":{"target":{"kind":"current_selection"},"color":"red"}}\n'
+        ' make selected red -> {"name":"color_selection","arguments":{"target":{"kind":"active_selection"},"color":"red"}}\n'
+        ' show sequence -> {"name":"show_sequence_view","arguments":{}}\n'
+        ' show sequence as residue codes -> {"name":"set_sequence_view_format","arguments":{"format":"residue_codes"}}\n'
         ' hide everything except ligand -> {"name":"isolate_selection","arguments":{"target":{"kind":"ligand"},"representation":"sticks"}}\n'
         ' set background to white -> {"name":"set_background","arguments":{"color":"white"}}\n'
     )
@@ -373,7 +379,7 @@ async def fetch_structure_data(req: Request):
     try:
         body = await req.json()
         pdb_id = (body.get("pdb_id") or "").strip().upper()
-        fmt = (body.get("format") or "pdb").strip().lower()
+        fmt = (body.get("format") or "mmcif").strip().lower()
         if not pdb_id:
             return JSONResponse(
                 {"ok": False, "error": "pdb_id is required"}, status_code=400
@@ -390,28 +396,37 @@ async def fetch_structure_data(req: Request):
     if error_response is not None:
         return error_response
 
-    # Download structure data
-    if fmt == "cif" or fmt == "mmcif":
-        url = f"https://files.rcsb.org/download/{pdb_id}.cif"
-        out_format = "cif"
-    else:
-        url = f"https://files.rcsb.org/download/{pdb_id}.pdb"
-        out_format = "pdb"
+    preferred_format = "cif" if fmt in {"cif", "mmcif"} else "pdb"
+    attempts = (
+        [("cif", f"https://files.rcsb.org/download/{pdb_id}.cif"),
+         ("pdb", f"https://files.rcsb.org/download/{pdb_id}.pdb")]
+        if preferred_format == "cif"
+        else [("pdb", f"https://files.rcsb.org/download/{pdb_id}.pdb"),
+              ("cif", f"https://files.rcsb.org/download/{pdb_id}.cif")]
+    )
 
     try:
         async with httpx.AsyncClient(timeout=30.0) as client:
-            resp = await client.get(url)
-        if resp.status_code != 200:
-            return JSONResponse(
-                {"ok": False, "error": f"RCSB download failed (HTTP {resp.status_code})"},
-                status_code=502,
-            )
-        return {
-            "ok": True,
-            "pdb_id": pdb_id,
-            "format": out_format,
-            "data": resp.text,
-        }
+            last_status = None
+            for out_format, url in attempts:
+                resp = await client.get(url)
+                if resp.status_code == 200:
+                    return {
+                        "ok": True,
+                        "pdb_id": pdb_id,
+                        "format": out_format,
+                        "data": resp.text,
+                    }
+                if resp.status_code != 404:
+                    return JSONResponse(
+                        {"ok": False, "error": f"RCSB download failed (HTTP {resp.status_code})"},
+                        status_code=502,
+                    )
+                last_status = resp.status_code
+        return JSONResponse(
+            {"ok": False, "error": f"RCSB download failed (HTTP {last_status or 404})"},
+            status_code=502,
+        )
     except Exception as exc:
         return JSONResponse(
             {"ok": False, "error": f"Download failed: {exc}"}, status_code=502

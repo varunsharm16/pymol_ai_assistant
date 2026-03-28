@@ -1,13 +1,26 @@
 import type { MoleculeViewerHandle, SelectionSpec } from '../components/MoleculeViewer';
-import type { NormalizedSpec, ViewerState } from '../store';
+import { useStore, type NormalizedSpec, type ViewerState } from '../store';
 
 const DEFERRED_MESSAGES: Record<string, string> = {
   show_contacts: 'Show contacts is staged for NexMol but not implemented yet.',
   align_objects: 'Align objects is staged for NexMol but still needs backend alignment support.',
-  show_sequence_view: 'Sequence view is staged for NexMol but not implemented yet.',
-  hide_sequence_view: 'Sequence view is staged for NexMol but not implemented yet.',
-  set_sequence_view_format: 'Sequence view formatting is staged for NexMol but not implemented yet.',
 };
+
+function mapSequenceFormatToMode(format: string): { mode: 'single' | 'polymers' | 'all' | null; message?: string } {
+  if (format === 'residue_codes') {
+    return { mode: 'single' };
+  }
+  if (format === 'chain_identifiers') {
+    return { mode: 'polymers' };
+  }
+  if (format === 'residue_names' || format === 'atom_names') {
+    return {
+      mode: null,
+      message: `${format.replace('_', ' ')} is not available in the Mol* sequence view yet.`,
+    };
+  }
+  return { mode: null, message: `Unsupported sequence format: ${format}` };
+}
 
 /**
  * Execute a normalized command spec against the MoleculeViewer.
@@ -91,8 +104,12 @@ export async function executeCommandSpec(
       }
 
       case 'clear_labels': {
-        await viewer.clearLabels();
-        return { ok: true, message: 'Cleared labels' };
+        const target = args.target as SelectionSpec | undefined;
+        await viewer.clearLabels(target);
+        return {
+          ok: true,
+          message: target ? `Cleared labels on ${describeSelection(target)}` : 'Cleared labels',
+        };
       }
 
       case 'zoom_selection': {
@@ -158,10 +175,29 @@ export async function executeCommandSpec(
 
       case 'show_contacts':
       case 'align_objects':
-      case 'show_sequence_view':
-      case 'hide_sequence_view':
-      case 'set_sequence_view_format':
         return { ok: false, message: DEFERRED_MESSAGES[name] };
+
+      case 'show_sequence_view': {
+        useStore.getState().setSequenceUiOpen(true);
+        return { ok: true, message: 'Opened sequence view' };
+      }
+
+      case 'hide_sequence_view': {
+        useStore.getState().setSequenceUiOpen(false);
+        return { ok: true, message: 'Closed sequence view' };
+      }
+
+      case 'set_sequence_view_format': {
+        const format = args.format as string;
+        const mapped = mapSequenceFormatToMode(format);
+        if (!mapped.mode) {
+          return { ok: false, message: mapped.message || 'Unsupported sequence format.' };
+        }
+        const store = useStore.getState();
+        store.setSequenceUiMode(mapped.mode);
+        store.setSequenceUiOpen(true);
+        return { ok: true, message: `Opened sequence view in ${mapped.mode} mode` };
+      }
 
       default:
         return { ok: false, message: `Unknown command: ${name}` };
@@ -269,6 +305,7 @@ function describeSelection(spec: SelectionSpec): string {
   if (kind === 'water') return 'waters';
   if (kind === 'metals') return 'metals';
   if (kind === 'hydrogens') return 'hydrogens';
+  if (kind === 'active_selection') return 'selected residues';
   if (kind === 'current_selection') return 'current selection';
 
   if (kind === 'chain') {

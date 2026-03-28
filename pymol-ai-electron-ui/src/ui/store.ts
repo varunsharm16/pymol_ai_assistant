@@ -40,6 +40,22 @@ export type MoleculeInfo = {
   name?: string;
 };
 
+export type ViewerSelectionSpec =
+  | { kind: 'all' }
+  | { kind: 'protein' }
+  | { kind: 'ligand' }
+  | { kind: 'water' }
+  | { kind: 'metals' }
+  | { kind: 'hydrogens' }
+  | { kind: 'active_selection' }
+  | { kind: 'current_selection' }
+  | { kind: 'chain'; chain: string; object?: string }
+  | { kind: 'residue'; residue: string; chain?: string; resi?: string; atom?: string; object?: string }
+  | { kind: 'atom'; atom: string; residue?: string; chain?: string; resi?: string; object?: string }
+  | { kind: 'object'; object: string };
+
+export type SequenceUiMode = 'single' | 'polymers' | 'all';
+
 export type ProjectStructure = {
   data: string;
   format: string;
@@ -77,6 +93,11 @@ type State = {
   projectViewerStates: Record<string, ViewerState | undefined>;
   draft: string;
   ui: { rightPanel: Right; quickActionsExpanded: boolean };
+  currentViewerSelection: ViewerSelectionSpec | null;
+  activeViewerSelections: ViewerSelectionSpec[];
+  selectedResiduePair: ViewerSelectionSpec[];
+  sequenceUi: { open: boolean; mode: SequenceUiMode };
+  viewerReady: boolean;
 
   apiKeyConfigured: boolean;
   showApiKeyModal: boolean;
@@ -99,6 +120,14 @@ type State = {
   clearProjectLogs: (projectId: string) => void;
   setNotes: (md: string) => void;
   setDraft: (v: string) => void;
+  setCurrentViewerSelection: (selection: ViewerSelectionSpec | null) => void;
+  setActiveViewerSelections: (selections: ViewerSelectionSpec[]) => void;
+  setSelectedResiduePair: (pair: ViewerSelectionSpec[]) => void;
+  clearViewerSelectionState: () => void;
+  setSequenceUiOpen: (open: boolean) => void;
+  toggleSequenceUi: () => void;
+  setSequenceUiMode: (mode: SequenceUiMode) => void;
+  setViewerReady: (ready: boolean) => void;
   setPendingRename: (id: string | null) => void;
   selectProject: (id: string) => void;
   renameProject: (id: string, name: string) => void;
@@ -162,6 +191,11 @@ export const useStore = create<State>((set, get) => ({
   projectViewerStates: initialWorkspace.projectViewerStates,
   draft: '',
   ui: { rightPanel: 'none', quickActionsExpanded: false },
+  currentViewerSelection: null,
+  activeViewerSelections: [],
+  selectedResiduePair: [],
+  sequenceUi: { open: false, mode: 'single' },
+  viewerReady: false,
 
   apiKeyConfigured: false,
   showApiKeyModal: false,
@@ -277,6 +311,17 @@ export const useStore = create<State>((set, get) => ({
   setNotes: (md) =>
     set((s) => ({ notes: { ...s.notes, [s.currentProjectId]: md } })),
   setDraft: (v) => set({ draft: v }),
+  setCurrentViewerSelection: (selection) => set({ currentViewerSelection: selection }),
+  setActiveViewerSelections: (selections) => set({ activeViewerSelections: selections }),
+  setSelectedResiduePair: (pair) => set({ selectedResiduePair: pair }),
+  clearViewerSelectionState: () => set({ currentViewerSelection: null, activeViewerSelections: [], selectedResiduePair: [] }),
+  setSequenceUiOpen: (open) =>
+    set((s) => ({ sequenceUi: { ...s.sequenceUi, open } })),
+  toggleSequenceUi: () =>
+    set((s) => ({ sequenceUi: { ...s.sequenceUi, open: !s.sequenceUi.open } })),
+  setSequenceUiMode: (mode) =>
+    set((s) => ({ sequenceUi: { ...s.sequenceUi, mode } })),
+  setViewerReady: (ready) => set({ viewerReady: ready }),
 
   setApiKeyConfigured: (v) => set({ apiKeyConfigured: v }),
   setShowApiKeyModal: (v) => set({ showApiKeyModal: v }),
@@ -354,6 +399,11 @@ export const useStore = create<State>((set, get) => ({
       switchingProject: false,
       draft: '',
       ui: { ...s.ui, rightPanel: 'none' },
+      currentViewerSelection: null,
+      activeViewerSelections: [],
+      selectedResiduePair: [],
+      sequenceUi: { ...s.sequenceUi, open: false },
+      viewerReady: false,
     }));
     return workspace.currentProjectId;
   },

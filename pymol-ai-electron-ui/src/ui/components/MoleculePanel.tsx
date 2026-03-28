@@ -12,6 +12,7 @@ const MoleculePanel: React.FC = () => {
   const setCurrentProjectMolecule = useStore((s) => s.setCurrentProjectMolecule);
   const setCurrentProjectStructure = useStore((s) => s.setCurrentProjectStructure);
   const setCurrentProjectViewerState = useStore((s) => s.setCurrentProjectViewerState);
+  const viewerReady = useStore((s) => s.viewerReady);
   const addLog = useStore((s) => s.addLog);
   const updateLog = useStore((s) => s.updateLog);
 
@@ -82,15 +83,16 @@ const MoleculePanel: React.FC = () => {
     if (res.ok && res.data) {
       try {
         const viewer = globalViewerRef.current;
-        if (viewer) {
-          await viewer.loadStructure(res.data, res.format || 'pdb', { objectName: normalizedId });
-          const snapshot = await viewer.getSceneSnapshot();
-          setCurrentProjectViewerState({
-            backgroundColor: snapshot.backgroundColor,
-            cameraSnapshot: snapshot.cameraSnapshot,
-            operations: [],
-          });
+        if (!viewer || !viewerReady) {
+          throw new Error('Viewer is still starting. Wait a moment and try loading the structure again.');
         }
+        await viewer.loadStructure(res.data, res.format || 'pdb', { objectName: normalizedId });
+        const snapshot = await viewer.getSceneSnapshot();
+        setCurrentProjectViewerState({
+          backgroundColor: snapshot.backgroundColor,
+          cameraSnapshot: snapshot.cameraSnapshot,
+          operations: [],
+        });
         setPdbStatus('loaded');
         setPdbMsg(`Loaded ${normalizedId}`);
         setCurrentProjectMolecule({
@@ -147,15 +149,16 @@ const MoleculePanel: React.FC = () => {
     if (res.ok && res.data) {
       try {
         const viewer = globalViewerRef.current;
-        if (viewer) {
-          await viewer.loadStructure(res.data, res.format || 'pdb', { objectName: name });
-          const snapshot = await viewer.getSceneSnapshot();
-          setCurrentProjectViewerState({
-            backgroundColor: snapshot.backgroundColor,
-            cameraSnapshot: snapshot.cameraSnapshot,
-            operations: [],
-          });
+        if (!viewer || !viewerReady) {
+          throw new Error('Viewer is still starting. Wait a moment and try importing again.');
         }
+        await viewer.loadStructure(res.data, res.format || 'pdb', { objectName: name });
+        const snapshot = await viewer.getSceneSnapshot();
+        setCurrentProjectViewerState({
+          backgroundColor: snapshot.backgroundColor,
+          cameraSnapshot: snapshot.cameraSnapshot,
+          operations: [],
+        });
         setImportStatus('loaded');
         setImportMsg(`Loaded ${name}`);
         setCurrentProjectMolecule({ filePath, name });
@@ -252,7 +255,7 @@ const MoleculePanel: React.FC = () => {
 
             <button
               onClick={handleFetch}
-              disabled={!pdbId.trim() || pdbStatus === 'loading'}
+              disabled={!pdbId.trim() || pdbStatus === 'loading' || !viewerReady}
               className="w-full h-10 rounded-full bg-brand hover:bg-brandHover text-black font-medium text-sm disabled:opacity-40 flex items-center justify-center gap-2"
             >
               {pdbStatus === 'loading' ? (
@@ -261,6 +264,12 @@ const MoleculePanel: React.FC = () => {
                 'Load Structure'
               )}
             </button>
+
+            {!viewerReady && (
+              <div className="text-xs text-neutral-400">
+                Viewer is starting up. Load will enable once Mol* is ready.
+              </div>
+            )}
 
             {pdbMsg && (
               <div className={`flex items-center gap-2 text-sm ${pdbStatus === 'loaded' ? 'text-emerald-400' : pdbStatus === 'error' ? 'text-red-400' : 'text-neutral-400'}`}>
@@ -276,13 +285,19 @@ const MoleculePanel: React.FC = () => {
           <>
             <button
               onClick={handleImport}
-              disabled={importStatus === 'loading'}
+              disabled={importStatus === 'loading' || !viewerReady}
               className="w-full h-24 rounded-xl border-2 border-dashed border-neutral-600 hover:border-brand flex flex-col items-center justify-center gap-2 text-sm text-neutral-400 hover:text-neutral-200 transition"
             >
               <Upload className="w-6 h-6" />
               <span>Choose a molecule file</span>
               <span className="text-xs text-neutral-500">.pdb .cif .mol2 .sdf .xyz</span>
             </button>
+
+            {!viewerReady && (
+              <div className="text-xs text-neutral-400">
+                Viewer is starting up. Import will enable once Mol* is ready.
+              </div>
+            )}
 
             {importMsg && (
               <div className={`flex items-center gap-2 text-sm ${importStatus === 'loaded' ? 'text-emerald-400' : importStatus === 'error' ? 'text-red-400' : 'text-neutral-400'}`}>

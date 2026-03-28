@@ -69,11 +69,16 @@ const PROMPTS: string[] = [
   'Set surface transparency to 0.4 on protein',
   'Label residues in chain A',
   'Label ligand',
+  'Clear selected label',
   'Clear labels',
 
   // --- Analysis ---
   'Measure distance between ligand and residue ASP in chain B',
   'Measure distance between selected',
+
+  // --- Sequence ---
+  'Show sequence',
+  'Hide sequence',
 
   // --- Snapshot / export ---
   'Save a PNG snapshot named test.png',
@@ -106,6 +111,7 @@ const DEFAULTS = [
   'Zoom to ligand',
   'Measure distance between ligand and residue ASP in chain B',
   'Color protein by chain',
+  'Show sequence',
 ];
 
 /** Simple fuzzy scorer: tokens + prefix + substring. Higher is better. */

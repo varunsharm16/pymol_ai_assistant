@@ -127,6 +127,16 @@ def test_clear_labels_normalizes_without_target():
     }
 
 
+def test_clear_labels_normalizes_with_selected_target():
+    spec = normalize_command_spec(
+        {"name": "clear_labels", "arguments": {"target": "selected"}}
+    )
+    assert spec == {
+        "name": "clear_labels",
+        "arguments": {"target": {"kind": "active_selection"}},
+    }
+
+
 def test_align_objects_requires_supported_method():
     try:
         normalize_command_spec(
@@ -167,7 +177,7 @@ def test_normalize_selection_spec_coerces_selected_string_target():
     assert spec == {
         "name": "color_selection",
         "arguments": {
-            "target": {"kind": "current_selection"},
+            "target": {"kind": "active_selection"},
             "color": "red",
         },
     }

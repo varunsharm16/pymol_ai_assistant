@@ -158,6 +158,24 @@ test('parses clear labels deterministically', () => {
   });
 });
 
+test('parses clear selected label deterministically', () => {
+  assert.deepEqual(parsePromptToSpec('Clear selected label'), {
+    name: 'clear_labels',
+    arguments: {
+      target: { kind: 'active_selection' },
+    },
+  });
+});
+
+test('parses clear labels on selected deterministically', () => {
+  assert.deepEqual(parsePromptToSpec('Clear labels on selected'), {
+    name: 'clear_labels',
+    arguments: {
+      target: { kind: 'active_selection' },
+    },
+  });
+});
+
 test('parses full residue family coloring', () => {
   assert.deepEqual(parsePromptToSpec('Color all leucine residues orange'), {
     name: 'color_selection',
@@ -228,7 +246,7 @@ test('parses make selected red deterministically', () => {
   assert.deepEqual(parsePromptToSpec('Make selected red'), {
     name: 'color_selection',
     arguments: {
-      target: { kind: 'current_selection' },
+      target: { kind: 'active_selection' },
       color: 'red',
     },
   });
@@ -238,7 +256,7 @@ test('parses turn selected black deterministically', () => {
   assert.deepEqual(parsePromptToSpec('Turn selected black'), {
     name: 'color_selection',
     arguments: {
-      target: { kind: 'current_selection' },
+      target: { kind: 'active_selection' },
       color: 'black',
     },
   });
@@ -248,7 +266,7 @@ test('parses highlight selected yellow deterministically', () => {
   assert.deepEqual(parsePromptToSpec('Highlight selected yellow'), {
     name: 'color_selection',
     arguments: {
-      target: { kind: 'current_selection' },
+      target: { kind: 'active_selection' },
       color: 'yellow',
     },
   });

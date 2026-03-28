@@ -6,3 +6,40 @@
 .app-drag { -webkit-app-region: drag; }
 .app-no-drag { -webkit-app-region: no-drag; }
 
+.nexmol-sequence-panel .msp-plugin {
+  background: #161616;
+  color: #e5e5e5;
+  min-height: 100%;
+  position: relative !important;
+  left: auto !important;
+  right: auto !important;
+  top: auto !important;
+  bottom: auto !important;
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+}
+
+.nexmol-sequence-panel .msp-sequence {
+  position: relative !important;
+  inset: auto !important;
+  width: 100%;
+  height: 100%;
+}
+
+.nexmol-sequence-panel .msp-sequence-wrapper-non-empty {
+  position: absolute;
+  inset: 25px 0 0 0;
+  overflow-y: auto;
+}
+
+.nexmol-sequence-panel .msp-sequence-select,
+.nexmol-sequence-panel .msp-sequence-wrapper,
+.nexmol-sequence-panel .msp-sequence-chain-label {
+  background: transparent;
+}
+
+.nexmol-sequence-panel .msp-btn,
+.nexmol-sequence-panel select {
+  color: #e5e5e5;
+}

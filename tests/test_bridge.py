@@ -87,7 +87,7 @@ def test_nl_coerces_string_selection_target(client, monkeypatch):
         "spec": {
             "name": "color_selection",
             "arguments": {
-                "target": {"kind": "current_selection"},
+                "target": {"kind": "active_selection"},
                 "color": "red",
             },
         },
@@ -169,6 +169,8 @@ def test_fetch_structure_data_not_found(client, monkeypatch):
 def test_fetch_structure_data_success(client, monkeypatch):
     import main
 
+    requested_urls: list[str] = []
+
     class FakeResponse:
         def __init__(self, status_code: int, json_data: dict | None = None, text: str = ""):
             self.status_code = status_code
@@ -189,6 +191,7 @@ def test_fetch_structure_data_success(client, monkeypatch):
             return False
 
         async def get(self, url):
+            requested_urls.append(url)
             if "rest/v1/core/entry" in url:
                 return FakeResponse(
                     200,
@@ -198,8 +201,10 @@ def test_fetch_structure_data_success(client, monkeypatch):
                         "rcsb_entry_info": {"resolution_combined": [1.5]},
                     },
                 )
-            if "files.rcsb.org/download" in url:
-                return FakeResponse(200, text="ATOM      1  N   THR A   1")
+            if url.endswith(".cif"):
+                return FakeResponse(200, text="data_1CRN\n#")
+            if url.endswith(".pdb"):
+                raise AssertionError("PDB fallback should not be used when mmCIF succeeds")
             raise AssertionError(f"Unexpected URL: {url}")
 
     monkeypatch.setattr(main.httpx, "AsyncClient", FakeAsyncClient)
@@ -207,8 +212,61 @@ def test_fetch_structure_data_success(client, monkeypatch):
     resp = client.post("/structures/fetch-data", json={"pdb_id": "1CRN"})
     assert resp.status_code == 200
     assert resp.json()["ok"] is True
+    assert resp.json()["format"] == "cif"
+    assert "data_1CRN" in resp.json()["data"]
+    assert any(url.endswith("/1CRN.cif") for url in requested_urls)
+
+
+def test_fetch_structure_data_falls_back_to_pdb_when_mmcif_missing(client, monkeypatch):
+    import main
+
+    requested_urls: list[str] = []
+
+    class FakeResponse:
+        def __init__(self, status_code: int, json_data: dict | None = None, text: str = ""):
+            self.status_code = status_code
+            self._json_data = json_data or {}
+            self.text = text
+
+        def json(self):
+            return self._json_data
+
+    class FakeAsyncClient:
+        def __init__(self, *args, **kwargs):
+            pass
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, exc_type, exc, tb):
+            return False
+
+        async def get(self, url):
+            requested_urls.append(url)
+            if "rest/v1/core/entry" in url:
+                return FakeResponse(
+                    200,
+                    json_data={
+                        "struct": {"title": "Fallback Example"},
+                        "exptl": [{"method": "ELECTRON MICROSCOPY"}],
+                        "rcsb_entry_info": {"resolution_combined": [2.7]},
+                    },
+                )
+            if url.endswith(".cif"):
+                return FakeResponse(404)
+            if url.endswith(".pdb"):
+                return FakeResponse(200, text="ATOM      1  N   THR A   1")
+            raise AssertionError(f"Unexpected URL: {url}")
+
+    monkeypatch.setattr(main.httpx, "AsyncClient", FakeAsyncClient)
+
+    resp = client.post("/structures/fetch-data", json={"pdb_id": "9NUK"})
+    assert resp.status_code == 200
+    assert resp.json()["ok"] is True
     assert resp.json()["format"] == "pdb"
     assert "ATOM" in resp.json()["data"]
+    assert any(url.endswith("/9NUK.cif") for url in requested_urls)
+    assert any(url.endswith("/9NUK.pdb") for url in requested_urls)
 
 
 def test_read_structure_file_not_found(client):

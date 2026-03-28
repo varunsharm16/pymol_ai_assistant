@@ -5,6 +5,7 @@ export type SelectionSpec =
   | { kind: 'water' }
   | { kind: 'metals' }
   | { kind: 'hydrogens' }
+  | { kind: 'active_selection' }
   | { kind: 'current_selection' }
   | { kind: 'chain'; chain: string; object?: string }
   | { kind: 'residue'; residue: string; chain?: string; resi?: string; object?: string }
@@ -178,8 +179,11 @@ function parseTarget(input: string, context?: SelectionTagContext | null): Selec
   if (['water', 'waters', 'water molecules', 'solvent'].includes(lower)) return { kind: 'water' };
   if (['metals', 'metal', 'metal atoms'].includes(lower)) return { kind: 'metals' };
   if (['hydrogen', 'hydrogens', 'hydrogen atoms'].includes(lower)) return { kind: 'hydrogens' };
-  if (['selection', 'current selection', 'selected', 'selected atoms', 'picked atoms'].includes(lower)) {
+  if (['current selection', 'current residue'].includes(lower)) {
     return { kind: 'current_selection' };
+  }
+  if (['selection', 'selected', 'selected atoms', 'picked atoms'].includes(lower)) {
+    return { kind: 'active_selection' };
   }
 
   const chain = text.match(/^chain\s+([A-Za-z])(?:\s+in\s+object\s+([A-Za-z0-9_.-]+))?$/i);
@@ -417,6 +421,16 @@ export function parsePromptToSpec(input: string, options?: { selectionTag?: Sele
       ? ({ kind: 'chain', chain: labelResidues[1].toUpperCase() } as const)
       : ({ kind: 'protein' } as const);
     return { name: 'label_selection', arguments: { target, mode: 'residue' } };
+  }
+  if (/^(?:remove|clear)\s+selected\s+labels?$/i.test(t) || /^(?:remove|clear)\s+labels?\s+on\s+selected$/i.test(t)) {
+    return { name: 'clear_labels', arguments: { target: { kind: 'active_selection' } } };
+  }
+  const clearLabelsOnTarget = t.match(/^(?:remove|clear)\s+labels?\s+(?:on|for)\s+(.+)$/i);
+  if (clearLabelsOnTarget) {
+    const target = parseTarget(clearLabelsOnTarget[1], selectionTag);
+    if (target) {
+      return { name: 'clear_labels', arguments: { target } };
+    }
   }
   if (/^(?:remove|clear)\s+labels$/i.test(t)) {
     return { name: 'clear_labels', arguments: {} };

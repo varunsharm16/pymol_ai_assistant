@@ -7,7 +7,7 @@ import { RightPanels } from './components/RightPanels';
 import MoleculeViewer, { MoleculeViewerHandle } from './components/MoleculeViewer';
 import { useStore } from './store';
 import { Button } from './components/Button';
-import { Settings, Activity, Atom, MessageSquare, Box, FolderKanban } from 'lucide-react';
+import { Settings, Activity, Atom, MessageSquare, Box, FolderKanban, List } from 'lucide-react';
 import ApiKeyModal from './components/ApiKeyModal';
 import OnboardingModal from './components/OnboardingModal';
 import { checkApiKey } from './lib/bridge';
@@ -20,6 +20,8 @@ type BottomTab = 'chat' | 'viewer';
 
 const Toolbar: React.FC = () => {
   const setPanel = useStore((s) => s.setRightPanel);
+  const toggleSequenceUi = useStore((s) => s.toggleSequenceUi);
+  const sequenceOpen = useStore((s) => s.sequenceUi.open);
   const [showHelp, setShowHelp] = React.useState(false);
   const helpRef = React.useRef<HTMLDivElement>(null);
 
@@ -46,6 +48,15 @@ const Toolbar: React.FC = () => {
       </Button>
       <Button size="sm" onClick={() => setPanel('toolbox')} className="app-no-drag">
         Tool Box
+      </Button>
+      <Button
+        size="sm"
+        onClick={() => toggleSequenceUi()}
+        className="app-no-drag"
+        variant={sequenceOpen ? 'solid' : 'outline'}
+      >
+        <List className="w-3.5 h-3.5 mr-1" />
+        Sequence
       </Button>
 
       <div className="relative app-no-drag" ref={helpRef} onPointerDown={(e) => e.stopPropagation()}>
@@ -114,6 +125,7 @@ const App: React.FC = () => {
   const currentProjectId = useStore((s) => s.currentProjectId);
   const currentProjectStructure = useStore((s) => s.projectStructures[s.currentProjectId]);
   const addLogToProject = useStore((s) => s.addLogToProject);
+  const viewerReady = useStore((s) => s.viewerReady);
   const [showOnboarding, setShowOnboarding] = React.useState(false);
   const [bottomTab, setBottomTab] = React.useState<BottomTab>('viewer');
   const onboardingKey = 'nexmol_onboarding_complete';
@@ -129,7 +141,7 @@ const App: React.FC = () => {
 
     const restore = async () => {
       const viewer = viewerRef.current;
-      if (!viewer) return;
+      if (!viewer || !viewerReady) return;
 
       if (!currentProjectStructure?.data) {
         await viewer.clear();
@@ -167,7 +179,7 @@ const App: React.FC = () => {
     return () => {
       cancelled = true;
     };
-  }, [addLogToProject, currentProjectId, currentProjectStructure]);
+  }, [addLogToProject, currentProjectId, currentProjectStructure, viewerReady]);
 
   // Check API key on mount
   React.useEffect(() => {

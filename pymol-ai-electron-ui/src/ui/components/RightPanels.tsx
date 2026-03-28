@@ -455,7 +455,7 @@ const ToolBoxPanel: React.FC = () => {
           key: 'clear_labels',
           label: 'Clear Labels',
           desc: 'Remove active labels from the viewer.',
-          examples: ['Clear labels', 'Remove labels'],
+          examples: ['Clear labels', 'Clear selected label'],
         },
       ],
     },
@@ -484,6 +484,12 @@ const ToolBoxPanel: React.FC = () => {
           label: 'Measure Distance',
           desc: 'Create a distance object between two targets.',
           examples: ['Measure distance between ligand and residue ASP in chain B', 'Measure distance between selected'],
+        },
+        {
+          key: 'show_sequence_view',
+          label: 'Sequence View',
+          desc: 'Open the Mol* sequence view and sync sequence clicks with viewer selection.',
+          examples: ['Show sequence', 'Show sequence as residue codes', 'Hide sequence'],
         },
         {
           key: 'show_contacts',
@@ -587,8 +593,8 @@ const HelpPanel: React.FC = () => (
         &nbsp;&quot;show ligand as sticks&quot; or &quot;color chain A red&quot;.
       </div>
       <div className="rounded-xl bg-neutral-900 p-3 text-neutral-300">
-        Staged commands such as contacts, alignment, and sequence view are preserved but may report
-        that they are not implemented yet.
+        Sequence view is now available from the toolbar or prompts like &quot;show sequence&quot;.
+        Contacts and alignment remain staged.
       </div>
       <a
         className="block px-3 py-2 rounded-xl hover:bg-[#1F1F1F]"

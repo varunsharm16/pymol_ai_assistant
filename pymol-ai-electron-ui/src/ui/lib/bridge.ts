@@ -222,7 +222,7 @@ export async function fetchStructureData(
     pdb_id: string;
   }>('/structures/fetch-data', {
     method: 'POST',
-    body: JSON.stringify({ pdb_id: pdbId }),
+    body: JSON.stringify({ pdb_id: pdbId, format: 'mmcif' }),
   }, onProgress);
 
   if (res.ok && res.data) {

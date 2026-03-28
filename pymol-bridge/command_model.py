@@ -58,6 +58,7 @@ SIMPLE_SELECTION_KINDS = {
     "water",
     "metals",
     "hydrogens",
+    "active_selection",
     "current_selection",
 }
 
@@ -159,6 +160,8 @@ def compile_selection_spec(target: dict[str, Any], residue_map: dict[str, str] |
         return "metals"
     if kind == "hydrogens":
         return "hydro"
+    if kind == "active_selection":
+        return "sele"
     if kind == "current_selection":
         return "sele"
     if kind == "chain":
@@ -266,8 +269,8 @@ def _coerce_selection_spec(target: Any) -> dict[str, Any] | None:
         "metals": "metals",
         "hydrogen": "hydrogens",
         "hydrogens": "hydrogens",
-        "selection": "current_selection",
-        "selected": "current_selection",
+        "selection": "active_selection",
+        "selected": "active_selection",
         "current selection": "current_selection",
         "current_selection": "current_selection",
     }
@@ -509,7 +512,10 @@ def _normalize_canonical_arguments(
         normalized["color"] = normalized.pop("colour")
 
     if name == "clear_labels":
-        normalized.pop("target", None)
+        if normalized.get("target") is not None:
+            normalized["target"] = normalize_selection_spec(normalized.get("target"), residue_map)
+        else:
+            normalized.pop("target", None)
         return normalized
 
     if name in {
