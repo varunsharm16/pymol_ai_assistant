@@ -205,6 +205,17 @@ function isSurfaceRepresentation(repr: string): boolean {
   return type === 'molecular-surface';
 }
 
+function surfaceVisualsForRepresentation(repr: string): string[] | undefined {
+  const key = repr.trim().toLowerCase();
+  if (key === 'mesh') {
+    return ['molecular-surface-wireframe'];
+  }
+  if (key === 'surface') {
+    return ['molecular-surface-mesh'];
+  }
+  return undefined;
+}
+
 function defaultRepresentationForKind(kind: string): string {
   if (kind === 'ligand' || kind === 'residue' || kind === 'atom' || kind === 'metals') {
     return 'ball-and-stick';
@@ -452,7 +463,7 @@ const MoleculeViewer = forwardRef<MoleculeViewerHandle, { className?: string }>(
         .replace(/[^a-z0-9]+/g, '-')
         .replace(/^-+|-+$/g, '');
 
-      const component = await plugin.builders.structure.tryCreateComponent(
+      const selector = await plugin.builders.structure.tryCreateComponent(
         loaded.cell,
         {
           type: { name: 'bundle', params: bundle },
@@ -462,28 +473,68 @@ const MoleculeViewer = forwardRef<MoleculeViewerHandle, { className?: string }>(
         `nexmol-${key || 'selection'}`
       );
 
-      if (!component) {
+      if (!selector) {
         throw new Error(`No atoms match ${label}.`);
       }
+
+      const component = getAllComponents().find(
+        (item: any) => item?.cell?.transform?.ref === selector.ref
+      );
+      if (!component) {
+        throw new Error(`Failed to register ${label} as a managed viewer component.`);
+      }
+
       return component as any;
-    }, [getLoadedStructure, getPlugin]);
+    }, [getAllComponents, getLoadedStructure, getPlugin]);
 
     const addRepresentationToComponent = useCallback(async (component: any, representation: string) => {
       const plugin = getPlugin();
-      await plugin.managers.structure.component.addRepresentation([component], representationToMolstarType(representation));
+      const representationType = representationToMolstarType(representation);
+
+      if (!isSurfaceRepresentation(representation)) {
+        await plugin.managers.structure.component.addRepresentation([component], representationType);
+        return;
+      }
+
+      const options = (plugin.managers.structure.component as any).state?.options || {};
+      const hydrogens = options.hydrogens || 'only-polar';
+      await plugin.builders.structure.representation.addRepresentation(component.cell, {
+        type: representationType,
+        typeParams: {
+          ignoreHydrogens: hydrogens !== 'all',
+          ignoreHydrogensVariant: hydrogens === 'only-polar' ? 'non-polar' : 'all',
+          quality: options.visualQuality || 'auto',
+          ignoreLight: options.ignoreLight ?? false,
+          material: options.materialStyle,
+          clip: options.clipObjects,
+          visuals: surfaceVisualsForRepresentation(representation),
+        },
+      } as any);
     }, [getPlugin]);
 
-    const representationExists = useCallback((selection: SelectionSpec, representation: string) => {
+    const representationExists = useCallback(async (selection: SelectionSpec, representation: string) => {
       const targetType = representationToMolstarType(representation);
-      const label = describeSelection(selection);
-      return getAllComponents().some((component: any) =>
-        String(component.cell?.obj?.label || component.cell?.transform?.params?.label || '') === label
-        && Array.isArray(component.representations)
-        && component.representations.some(
+      const targetLoci = await resolveSelectionSilently(selection);
+      if (!targetLoci) return false;
+      const root = getRootStructure();
+
+      return getAllComponents().some((component: any) => {
+        if (!Array.isArray(component.representations)) return false;
+        const hasType = component.representations.some(
           (item: any) => item.cell.transform.params?.type?.name === targetType
-        )
-      );
-    }, [getAllComponents]);
+        );
+        if (!hasType) return false;
+
+        const componentStructure = component.cell?.obj?.data;
+        if (!componentStructure) return false;
+
+        const componentLoci = StructureElement.Loci.remap(
+          Structure.toStructureElementLoci(componentStructure),
+          root
+        );
+        return StructureElement.Loci.areIntersecting(componentLoci, targetLoci);
+      });
+    }, [getAllComponents, getRootStructure, resolveSelectionSilently]);
 
     const pushSelectedPair = useCallback((selection: SelectionSpec | null) => {
       if (!selection || selection.kind !== 'residue') return;
@@ -969,7 +1020,7 @@ const MoleculeViewer = forwardRef<MoleculeViewerHandle, { className?: string }>(
         return enqueue(async () => {
           await requireSelectionLoci(selection);
           const targetRepresentation = representation || 'surface';
-          if (!representationExists(selection, targetRepresentation)) {
+          if (!(await representationExists(selection, targetRepresentation))) {
             throw new Error(`No active ${targetRepresentation} representation is available to fade yet.`);
           }
           const key = `transparency:${selectionKey(selection)}:${representation || 'surface'}`;
