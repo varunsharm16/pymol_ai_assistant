@@ -30,6 +30,26 @@ test('parses cartoon representation of the molecule', () => {
   });
 });
 
+test('parses display surface on protein deterministically', () => {
+  assert.deepEqual(parsePromptToSpec('Display surface on protein'), {
+    name: 'show_representation',
+    arguments: {
+      target: { kind: 'protein' },
+      representation: 'surface',
+    },
+  });
+});
+
+test('parses hide surface for ligand deterministically', () => {
+  assert.deepEqual(parsePromptToSpec('Hide surface for ligand'), {
+    name: 'hide_representation',
+    arguments: {
+      target: { kind: 'ligand' },
+      representation: 'surface',
+    },
+  });
+});
+
 test('parses sequence view format command', () => {
   assert.deepEqual(parsePromptToSpec('Show sequence as residue names'), {
     name: 'set_sequence_view_format',
@@ -73,9 +93,44 @@ test('parses transparency on protein', () => {
   });
 });
 
+test('parses fade surface transparency phrasing', () => {
+  assert.deepEqual(parsePromptToSpec('Fade surface on protein to 40% transparent'), {
+    name: 'set_transparency',
+    arguments: {
+      target: { kind: 'protein' },
+      representation: 'surface',
+      value: 0.4,
+    },
+  });
+});
+
+test('parses make target representation transparent phrasing', () => {
+  assert.deepEqual(parsePromptToSpec('Make chain B surface transparent 0.25'), {
+    name: 'set_transparency',
+    arguments: {
+      target: { kind: 'chain', chain: 'B' },
+      representation: 'surface',
+      value: 0.25,
+    },
+  });
+});
+
 test('parses measure distance between ligand and residue', () => {
   assert.deepEqual(
     parsePromptToSpec('Measure distance between ligand and residue ASP in chain B'),
+    {
+      name: 'measure_distance',
+      arguments: {
+        source: { kind: 'ligand' },
+        target: { kind: 'residue', residue: 'ASP', chain: 'B' },
+      },
+    }
+  );
+});
+
+test('parses measure distance from X to Y phrasing', () => {
+  assert.deepEqual(
+    parsePromptToSpec('Measure the distance from ligand to residue ASP in chain B'),
     {
       name: 'measure_distance',
       arguments: {
@@ -93,6 +148,13 @@ test('parses measure distance between selected', () => {
       source: { kind: 'current_selection' },
       target: { kind: 'current_selection' },
     },
+  });
+});
+
+test('parses clear labels deterministically', () => {
+  assert.deepEqual(parsePromptToSpec('Clear labels'), {
+    name: 'clear_labels',
+    arguments: {},
   });
 });
 
@@ -146,6 +208,20 @@ test('parses current selection tag with provided context', () => {
       },
     }
   );
+});
+
+test('parses label all residues in chain B deterministically', () => {
+  assert.deepEqual(parsePromptToSpec('Label all residues in chain B'), {
+    name: 'label_selection',
+    arguments: {
+      target: { kind: 'chain', chain: 'B' },
+      mode: 'residue',
+    },
+  });
+});
+
+test('does not parse orient prompts anymore', () => {
+  assert.equal(parsePromptToSpec('Orient target on chain B'), null);
 });
 
 test('parses make selected red deterministically', () => {

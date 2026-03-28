@@ -15,7 +15,6 @@ const PROMPTS: string[] = [
   'Isolate ligand',
   'Hide everything except ligand',
   'Zoom to ligand',
-  'Orient on chain B',
 
   // --- Colors / selections ---
   'Color ALA green',
@@ -70,9 +69,11 @@ const PROMPTS: string[] = [
   'Set surface transparency to 0.4 on protein',
   'Label residues in chain A',
   'Label ligand',
+  'Clear labels',
 
   // --- Analysis ---
   'Measure distance between ligand and residue ASP in chain B',
+  'Measure distance between selected',
 
   // --- Snapshot / export ---
   'Save a PNG snapshot named test.png',

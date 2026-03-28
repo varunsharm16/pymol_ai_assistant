@@ -37,8 +37,8 @@ CANONICAL_ACTIONS = {
     "color_by_element",
     "set_transparency",
     "label_selection",
+    "clear_labels",
     "zoom_selection",
-    "orient_selection",
     "measure_distance",
     "show_contacts",
     "align_objects",
@@ -46,6 +46,8 @@ CANONICAL_ACTIONS = {
     "hide_sequence_view",
     "set_sequence_view_format",
 }
+
+UNSUPPORTED_COMPAT_ACTIONS = {"orient_selection"}
 
 SELECTION_TARGET_FIELDS = ("target", "source", "mobile")
 
@@ -412,6 +414,9 @@ def normalize_command_spec(spec: dict[str, Any], residue_map: dict[str, str] | N
     if name in SPECIAL_ACTIONS:
         return {"name": name, "arguments": _normalize_special_arguments(name, arguments)}
 
+    if name in UNSUPPORTED_COMPAT_ACTIONS:
+        return {"name": name, "arguments": {"target": normalize_selection_spec(arguments.get("target"), residue_map)}}
+
     if name not in CANONICAL_ACTIONS:
         raise ValueError(f"Unknown action: {name}")
 
@@ -503,6 +508,10 @@ def _normalize_canonical_arguments(
     if "colour" in normalized and "color" not in normalized:
         normalized["color"] = normalized.pop("colour")
 
+    if name == "clear_labels":
+        normalized.pop("target", None)
+        return normalized
+
     if name in {
         "show_representation",
         "hide_representation",
@@ -513,8 +522,8 @@ def _normalize_canonical_arguments(
         "color_by_element",
         "set_transparency",
         "label_selection",
+        "clear_labels",
         "zoom_selection",
-        "orient_selection",
     }:
         normalized["target"] = normalize_selection_spec(normalized.get("target"), residue_map)
 

@@ -209,7 +209,7 @@ export const PromptInput: React.FC = () => {
       </div>
 
       <div className="text-xs text-neutral-400">
-        One action per prompt. Try &quot;show ligand as sticks&quot; or &quot;color chain A red&quot;. Click a residue first for prompts that use the current selection.
+        One action per prompt. Try &quot;show ligand as sticks&quot; or &quot;color chain A red&quot;. Click one residue for current-selection prompts, or two residues for &quot;measure distance between selected&quot;.
       </div>
     </div>
   );

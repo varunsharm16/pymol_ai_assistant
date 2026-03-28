@@ -300,6 +300,14 @@ export function parsePromptToSpec(input: string, options?: { selectionTag?: Sele
       }
     }
   }
+  const measureFromTo = t.match(/^measure(?:\s+the)?\s+distance\s+from\s+(.+?)\s+to\s+(.+)$/i);
+  if (measureFromTo) {
+    const source = parseTarget(measureFromTo[1], selectionTag);
+    const target = parseTarget(measureFromTo[2], selectionTag);
+    if (source && target) {
+      return { name: 'measure_distance', arguments: { source, target } };
+    }
+  }
 
   // Polar contacts
   if (/show (?:polar )?contacts between/i.test(t)) {
@@ -353,14 +361,65 @@ export function parsePromptToSpec(input: string, options?: { selectionTag?: Sele
       };
     }
   }
+  const fadeTransparency = t.match(
+    /^(?:fade|make)\s+([a-z]+)\s+(?:on|for)\s+(.+?)\s+(?:to\s+)?([0-9.]+%?)\s+transparent$/i
+  );
+  if (fadeTransparency) {
+    const representation = parseRepresentation(fadeTransparency[1]);
+    const target = parseTarget(fadeTransparency[2], selectionTag);
+    const value = parseTransparencyValue(fadeTransparency[3]);
+    if (representation && target && value != null) {
+      return {
+        name: 'set_transparency',
+        arguments: { representation, target, value },
+      };
+    }
+  }
+  const makeTransparent = t.match(
+    /^(?:make|set)\s+(.+?)\s+([a-z]+)\s+transparent(?:\s+to)?\s+([0-9.]+%?)$/i
+  );
+  if (makeTransparent) {
+    const target = parseTarget(makeTransparent[1], selectionTag);
+    const representation = parseRepresentation(makeTransparent[2]);
+    const value = parseTransparencyValue(makeTransparent[3]);
+    if (target && representation && value != null) {
+      return {
+        name: 'set_transparency',
+        arguments: { representation, target, value },
+      };
+    }
+  }
 
   // Labeling
+  const labelAllResiduesInChain = t.match(/^label\s+all\s+residues?\s+in\s+chain\s+([A-Za-z])$/i);
+  if (labelAllResiduesInChain) {
+    return {
+      name: 'label_selection',
+      arguments: {
+        target: { kind: 'chain', chain: labelAllResiduesInChain[1].toUpperCase() },
+        mode: 'residue',
+      },
+    };
+  }
+  const labelChainResidues = t.match(/^label\s+chain\s+([A-Za-z])\s+residues?$/i);
+  if (labelChainResidues) {
+    return {
+      name: 'label_selection',
+      arguments: {
+        target: { kind: 'chain', chain: labelChainResidues[1].toUpperCase() },
+        mode: 'residue',
+      },
+    };
+  }
   const labelResidues = t.match(/^label\s+residues?(?:\s+in\s+chain\s+([A-Za-z]))?$/i);
   if (labelResidues) {
     const target = labelResidues[1]
       ? ({ kind: 'chain', chain: labelResidues[1].toUpperCase() } as const)
       : ({ kind: 'protein' } as const);
     return { name: 'label_selection', arguments: { target, mode: 'residue' } };
+  }
+  if (/^(?:remove|clear)\s+labels$/i.test(t)) {
+    return { name: 'clear_labels', arguments: {} };
   }
   const labelTarget = t.match(/^label\s+(.+)$/i);
   if (labelTarget) {
@@ -378,11 +437,6 @@ export function parsePromptToSpec(input: string, options?: { selectionTag?: Sele
   if (zoom) {
     const target = parseTarget(zoom[1], selectionTag);
     if (target) return { name: 'zoom_selection', arguments: { target } };
-  }
-  const orient = t.match(/^orient\s+(?:to|on)?\s*(.+)$/i);
-  if (orient) {
-    const target = parseTarget(orient[1], selectionTag);
-    if (target) return { name: 'orient_selection', arguments: { target } };
   }
 
   // Isolate / hide-everything-except
@@ -419,6 +473,14 @@ export function parsePromptToSpec(input: string, options?: { selectionTag?: Sele
       return { name: 'show_representation', arguments: { target, representation } };
     }
   }
+  const showRepOnTarget = t.match(/^(?:show|display)\s+([a-z]+)\s+(?:on|for)\s+(.+)$/i);
+  if (showRepOnTarget) {
+    const representation = parseRepresentation(showRepOnTarget[1]);
+    const target = parseTarget(showRepOnTarget[2], selectionTag);
+    if (representation && target) {
+      return { name: 'show_representation', arguments: { target, representation } };
+    }
+  }
   const showTargetRep = t.match(/^show\s+(.+?)\s+(?:representation\s+)?(?:of\s+)?(?:the\s+)?([a-z]+)$/i);
   if (showTargetRep) {
     const target = parseTarget(showTargetRep[2], selectionTag);
@@ -441,6 +503,14 @@ export function parsePromptToSpec(input: string, options?: { selectionTag?: Sele
     const representation = hideRepTarget[1].toLowerCase() === 'everything'
       ? 'everything'
       : parseRepresentation(hideRepTarget[1]);
+    if (target && representation) {
+      return { name: 'hide_representation', arguments: { target, representation } };
+    }
+  }
+  const hideRepOfTarget = t.match(/^hide\s+([a-z]+)\s+(?:representation\s+)?(?:of|for)\s+(.+)$/i);
+  if (hideRepOfTarget) {
+    const target = parseTarget(hideRepOfTarget[2], selectionTag);
+    const representation = parseRepresentation(hideRepOfTarget[1]);
     if (target && representation) {
       return { name: 'hide_representation', arguments: { target, representation } };
     }

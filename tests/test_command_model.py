@@ -119,6 +119,14 @@ def test_normalize_sequence_view_format():
     }
 
 
+def test_clear_labels_normalizes_without_target():
+    spec = normalize_command_spec({"name": "clear_labels", "arguments": {}})
+    assert spec == {
+        "name": "clear_labels",
+        "arguments": {},
+    }
+
+
 def test_align_objects_requires_supported_method():
     try:
         normalize_command_spec(
@@ -178,6 +186,21 @@ def test_normalize_selection_spec_infers_object_kind_from_dict():
         "name": "zoom_selection",
         "arguments": {
             "target": {"kind": "object", "object": "1crn"},
+        },
+    }
+
+
+def test_orient_selection_is_normalized_for_compat_rejection():
+    spec = normalize_command_spec(
+        {
+            "name": "orient_selection",
+            "arguments": {"target": "chain b"},
+        }
+    )
+    assert spec == {
+        "name": "orient_selection",
+        "arguments": {
+            "target": {"kind": "chain", "chain": "B"},
         },
     }
 

@@ -6,6 +6,7 @@ import { DefaultPluginUISpec } from 'molstar/lib/mol-plugin-ui/spec';
 import { PluginCommands } from 'molstar/lib/mol-plugin/commands';
 import { Color } from 'molstar/lib/mol-util/color';
 import { Mat3, Mat4, Vec3 } from 'molstar/lib/mol-math/linear-algebra';
+import { OrderedSet, SortedArray } from 'molstar/lib/mol-data/int';
 import { changeCameraRotation } from 'molstar/lib/mol-plugin-state/manager/focus-camera/orient-axes';
 import {
   Structure,
@@ -92,6 +93,7 @@ export interface MoleculeViewerHandle {
   colorByElement: (selection: SelectionSpec) => Promise<void>;
   setTransparency: (selection: SelectionSpec, value: number, representation: string) => Promise<void>;
   labelSelection: (selection: SelectionSpec, mode: string) => Promise<void>;
+  clearLabels: () => Promise<void>;
   zoomTo: (selection: SelectionSpec) => Promise<void>;
   orientSelection: (selection: SelectionSpec) => Promise<void>;
   measureDistance: (source: SelectionSpec, target: SelectionSpec) => Promise<void>;
@@ -147,6 +149,14 @@ type DistanceOperation = {
   target: SelectionSpec;
 };
 
+type AnchorCandidate = {
+  key: string;
+  first: any;
+  ca?: any;
+  p?: any;
+  heavy?: any;
+};
+
 function describeSelection(spec: SelectionSpec): string {
   const kind = spec.kind;
   if (kind === 'all') return 'everything';
@@ -188,6 +198,11 @@ function representationToMolstarType(repr: string): string {
 
 function representationTypeFilter(repr: string): string[] {
   return [representationToMolstarType(repr)];
+}
+
+function isSurfaceRepresentation(repr: string): boolean {
+  const type = representationToMolstarType(repr);
+  return type === 'molecular-surface';
 }
 
 function defaultRepresentationForKind(kind: string): string {
@@ -271,6 +286,7 @@ const MoleculeViewer = forwardRef<MoleculeViewerHandle, { className?: string }>(
     const structureLoadedRef = useRef(false);
     const currentSelectionRef = useRef<SelectionSpec | null>(null);
     const currentSelectionLociRef = useRef<any | null>(null);
+    const selectedPairRef = useRef<SelectionSpec[]>([]);
     const currentObjectNameRef = useRef<string | null>(null);
     const queueRef = useRef<Promise<unknown>>(Promise.resolve());
     const lastStructureRef = useRef<StoredStructure | null>(null);
@@ -321,6 +337,7 @@ const MoleculeViewer = forwardRef<MoleculeViewerHandle, { className?: string }>(
     const clearSelectionState = useCallback(() => {
       currentSelectionRef.current = null;
       currentSelectionLociRef.current = null;
+      selectedPairRef.current = [];
     }, []);
 
     const resetSceneOps = useCallback(() => {
@@ -416,6 +433,16 @@ const MoleculeViewer = forwardRef<MoleculeViewerHandle, { className?: string }>(
       return loci;
     }, [resolveSelection]);
 
+    const createSingleAtomLoci = useCallback((location: any) => {
+      const index = SortedArray.indexOf(location.unit.elements, location.element);
+      if (index < 0) {
+        throw new Error('Failed to resolve an atom in the current selection.');
+      }
+      return StructureElement.Loci(location.structure, [
+        { unit: location.unit, indices: OrderedSet.ofSingleton(index as any) as any },
+      ]);
+    }, []);
+
     const createComponentForLoci = useCallback(async (loci: any, label: string) => {
       const plugin = getPlugin();
       const loaded = getLoadedStructure();
@@ -440,6 +467,30 @@ const MoleculeViewer = forwardRef<MoleculeViewerHandle, { className?: string }>(
       }
       return component as any;
     }, [getLoadedStructure, getPlugin]);
+
+    const addRepresentationToComponent = useCallback(async (component: any, representation: string) => {
+      const plugin = getPlugin();
+      await plugin.managers.structure.component.addRepresentation([component], representationToMolstarType(representation));
+    }, [getPlugin]);
+
+    const representationExists = useCallback((selection: SelectionSpec, representation: string) => {
+      const targetType = representationToMolstarType(representation);
+      const label = describeSelection(selection);
+      return getAllComponents().some((component: any) =>
+        String(component.cell?.obj?.label || component.cell?.transform?.params?.label || '') === label
+        && Array.isArray(component.representations)
+        && component.representations.some(
+          (item: any) => item.cell.transform.params?.type?.name === targetType
+        )
+      );
+    }, [getAllComponents]);
+
+    const pushSelectedPair = useCallback((selection: SelectionSpec | null) => {
+      if (!selection || selection.kind !== 'residue') return;
+      const key = selectionKey(selection);
+      const next = [...selectedPairRef.current.filter((item) => selectionKey(item) !== key), selection];
+      selectedPairRef.current = next.slice(-2);
+    }, []);
 
     const clearMeasurements = useCallback(async (kind: 'labels' | 'distances' | 'all' = 'all') => {
       const plugin = getPlugin();
@@ -537,33 +588,120 @@ const MoleculeViewer = forwardRef<MoleculeViewerHandle, { className?: string }>(
       }
     }, [getAllComponents, getPlugin, resolveSelectionSilently]);
 
+    const buildResidueLabelLoci = useCallback((baseLoci: any, location: any) => {
+      const chain = StructureProperties.chain.auth_asym_id(location) || StructureProperties.chain.label_asym_id(location) || undefined;
+      const residue = StructureProperties.atom.label_comp_id(location);
+      const resi = StructureProperties.residue.auth_seq_id(location);
+
+      if (!residue || !Number.isFinite(resi)) {
+        return StructureElement.Loci.firstResidue(createSingleAtomLoci(location));
+      }
+
+      const residueLoci = StructureElement.Schema.toLoci(baseLoci.structure, {
+        label_comp_id: residue,
+        auth_seq_id: resi,
+        ...(chain ? { auth_asym_id: chain } : {}),
+      });
+
+      const scoped = StructureElement.Loci.intersect(
+        StructureElement.Loci.extendToWholeResidues(baseLoci),
+        residueLoci
+      );
+
+      if (StructureElement.Loci.isEmpty(scoped)) {
+        return StructureElement.Loci.firstResidue(createSingleAtomLoci(location));
+      }
+
+      return scoped;
+    }, [createSingleAtomLoci]);
+
     const rebuildLabels = useCallback(async () => {
       await clearMeasurements('labels');
       const plugin = getPlugin();
       for (const op of labelOpsRef.current) {
         const loci = await resolveSelectionSilently(op.selection);
         if (!loci) continue;
+        const seen = new Set<string>();
+        const pending: Array<{ loci: any; text: string }> = [];
 
-        const firstLocation = StructureElement.Loci.getFirstLocation(loci);
-        let customText = describeSelection(op.selection);
-        if (firstLocation) {
-          const atom = StructureProperties.atom.label_atom_id(firstLocation);
-          const residue = StructureProperties.atom.label_comp_id(firstLocation);
-          const resi = StructureProperties.residue.auth_seq_id(firstLocation);
-          customText = op.mode === 'atom' && atom
-            ? atom
-            : residue && Number.isFinite(resi)
-              ? `${residue}${resi}`
-              : describeSelection(op.selection);
+        StructureElement.Loci.forEachLocation(loci, (location) => {
+          const chain = StructureProperties.chain.auth_asym_id(location) || StructureProperties.chain.label_asym_id(location) || '';
+          const residue = StructureProperties.atom.label_comp_id(location) || '';
+          const resi = StructureProperties.residue.auth_seq_id(location);
+          const atom = StructureProperties.atom.label_atom_id(location) || '';
+
+          if (op.mode === 'atom') {
+            const key = `${location.unit.id}:${location.element}`;
+            if (seen.has(key)) return;
+            seen.add(key);
+            pending.push({
+              loci: createSingleAtomLoci(location),
+              text: atom || describeSelection(op.selection),
+            });
+            return;
+          }
+
+          const key = `${chain}:${residue}:${String(resi)}`;
+          if (seen.has(key)) return;
+          seen.add(key);
+          pending.push({
+            loci: buildResidueLabelLoci(loci, location),
+            text: residue && Number.isFinite(resi) ? `${residue}${resi}` : describeSelection(op.selection),
+          });
+        });
+
+        for (const entry of pending) {
+          await plugin.managers.structure.measurement.addLabel(entry.loci, {
+            visualParams: {
+              customText: entry.text,
+            },
+          });
+        }
+      }
+    }, [buildResidueLabelLoci, clearMeasurements, createSingleAtomLoci, getPlugin, resolveSelectionSilently]);
+
+    const chooseAnchorLocation = useCallback((spec: SelectionSpec, loci: any) => {
+      if (spec.kind === 'atom') {
+        return StructureElement.Loci.getFirstLocation(StructureElement.Loci.firstElement(loci));
+      }
+
+      const candidates: AnchorCandidate[] = [];
+      const byResidue = new Map<string, AnchorCandidate>();
+
+      StructureElement.Loci.forEachLocation(loci, (location) => {
+        const chain = StructureProperties.chain.auth_asym_id(location) || StructureProperties.chain.label_asym_id(location) || '';
+        const residue = StructureProperties.atom.label_comp_id(location) || '';
+        const resi = StructureProperties.residue.auth_seq_id(location);
+        const key = `${chain}:${residue}:${String(resi)}`;
+        let entry = byResidue.get(key);
+        if (!entry) {
+          entry = { key, first: StructureElement.Location.clone(location) };
+          byResidue.set(key, entry);
+          candidates.push(entry);
         }
 
-        await plugin.managers.structure.measurement.addLabel(loci, {
-          visualParams: {
-            customText,
-          },
-        });
+        const atomName = String(StructureProperties.atom.label_atom_id(location) || '').toUpperCase();
+        const elementSymbol = String(StructureProperties.atom.type_symbol(location) || '').toUpperCase();
+        if (atomName === 'CA' && !entry.ca) entry.ca = StructureElement.Location.clone(location);
+        if (atomName === 'P' && !entry.p) entry.p = StructureElement.Location.clone(location);
+        if (elementSymbol !== 'H' && !entry.heavy) entry.heavy = StructureElement.Location.clone(location);
+      });
+
+      const entry = candidates[0];
+      if (!entry) {
+        return StructureElement.Loci.getFirstLocation(StructureElement.Loci.firstElement(loci));
       }
-    }, [clearMeasurements, getPlugin, resolveSelectionSilently]);
+      return entry.ca || entry.p || entry.heavy || entry.first;
+    }, []);
+
+    const resolveAnchorLoci = useCallback(async (spec: SelectionSpec) => {
+      const loci = await requireSelectionLoci(spec);
+      const location = chooseAnchorLocation(spec, loci);
+      if (!location) {
+        throw new Error(`No anchor atom could be resolved for ${describeSelection(spec)}.`);
+      }
+      return createSingleAtomLoci(location);
+    }, [chooseAnchorLocation, createSingleAtomLoci, requireSelectionLoci]);
 
     const rebuildDistances = useCallback(async () => {
       await clearMeasurements('distances');
@@ -572,9 +710,17 @@ const MoleculeViewer = forwardRef<MoleculeViewerHandle, { className?: string }>(
         const sourceLoci = await resolveSelectionSilently(op.source);
         const targetLoci = await resolveSelectionSilently(op.target);
         if (!sourceLoci || !targetLoci) continue;
-        await plugin.managers.structure.measurement.addDistance(sourceLoci, targetLoci);
+        const sourceAnchor = chooseAnchorLocation(op.source, sourceLoci);
+        const targetAnchor = chooseAnchorLocation(op.target, targetLoci);
+        if (!sourceAnchor || !targetAnchor || StructureElement.Location.areEqual(sourceAnchor, targetAnchor)) {
+          continue;
+        }
+        await plugin.managers.structure.measurement.addDistance(
+          createSingleAtomLoci(sourceAnchor),
+          createSingleAtomLoci(targetAnchor)
+        );
       }
-    }, [clearMeasurements, getPlugin, resolveSelectionSilently]);
+    }, [chooseAnchorLocation, clearMeasurements, createSingleAtomLoci, getPlugin, resolveSelectionSilently]);
 
     const reapplySceneDecorations = useCallback(async () => {
       await applyColorOps();
@@ -662,6 +808,7 @@ const MoleculeViewer = forwardRef<MoleculeViewerHandle, { className?: string }>(
           const residueLoci = StructureElement.Loci.firstResidue(loci);
           currentSelectionLociRef.current = residueLoci;
           currentSelectionRef.current = extractSelectionSpec(residueLoci);
+          pushSelectedPair(currentSelectionRef.current);
         });
 
         await PluginCommands.Canvas3D.SetSettings(plugin, {
@@ -682,7 +829,7 @@ const MoleculeViewer = forwardRef<MoleculeViewerHandle, { className?: string }>(
         pluginRef.current?.dispose();
         pluginRef.current = null;
       };
-    }, [extractSelectionSpec]);
+    }, [extractSelectionSpec, pushSelectedPair]);
 
     useImperativeHandle(ref, () => ({
       loadStructure(data: string, format: string, options?: { objectName?: string }) {
@@ -717,10 +864,16 @@ const MoleculeViewer = forwardRef<MoleculeViewerHandle, { className?: string }>(
       showRepresentation(selection: SelectionSpec, representation: string) {
         return enqueue(async () => {
           const plugin = getPlugin();
+          if (isSurfaceRepresentation(representation)) {
+            const allowedKinds = new Set(['protein', 'ligand', 'residue', 'chain', 'all', 'object', 'current_selection']);
+            if (!allowedKinds.has(selection.kind)) {
+              throw new Error(`Surface is currently supported for protein, ligand, residue, chain, object, or the full structure. "${describeSelection(selection)}" is not supported.`);
+            }
+          }
           const loci = await requireSelectionLoci(selection);
           const component = await createComponentForLoci(loci, describeSelection(selection));
           await plugin.managers.structure.component.removeRepresentations([component]);
-          await plugin.managers.structure.component.addRepresentation([component], representationToMolstarType(representation));
+          await addRepresentationToComponent(component, representation);
           await reapplySceneDecorations();
         });
       },
@@ -815,6 +968,10 @@ const MoleculeViewer = forwardRef<MoleculeViewerHandle, { className?: string }>(
       setTransparency(selection: SelectionSpec, value: number, representation: string) {
         return enqueue(async () => {
           await requireSelectionLoci(selection);
+          const targetRepresentation = representation || 'surface';
+          if (!representationExists(selection, targetRepresentation)) {
+            throw new Error(`No active ${targetRepresentation} representation is available to fade yet.`);
+          }
           const key = `transparency:${selectionKey(selection)}:${representation || 'surface'}`;
           transparencyOpsRef.current = [
             ...transparencyOpsRef.current.filter((op) => op.key !== key),
@@ -822,7 +979,7 @@ const MoleculeViewer = forwardRef<MoleculeViewerHandle, { className?: string }>(
               key,
               selection,
               value: Math.max(0, Math.min(1, value)),
-              representation: representation || 'surface',
+              representation: targetRepresentation,
             },
           ];
           await applyTransparencyOps();
@@ -841,6 +998,13 @@ const MoleculeViewer = forwardRef<MoleculeViewerHandle, { className?: string }>(
         });
       },
 
+      clearLabels() {
+        return enqueue(async () => {
+          labelOpsRef.current = [];
+          await clearMeasurements('labels');
+        });
+      },
+
       zoomTo(selection: SelectionSpec) {
         return enqueue(async () => {
           const plugin = getPlugin();
@@ -854,18 +1018,32 @@ const MoleculeViewer = forwardRef<MoleculeViewerHandle, { className?: string }>(
           const plugin = getPlugin();
           const loci = await requireSelectionLoci(selection);
           plugin.managers.camera.focusLoci(loci, { durationMs: 250, extraRadius: 4 });
-          plugin.managers.camera.orientAxes([getRootStructure()], 250);
+          plugin.managers.camera.orientAxes([StructureElement.Loci.toStructure(loci)], 250);
         });
       },
 
       measureDistance(source: SelectionSpec, target: SelectionSpec) {
         return enqueue(async () => {
-          await requireSelectionLoci(source);
-          await requireSelectionLoci(target);
-          const key = `distance:${selectionKey(source)}:${selectionKey(target)}`;
+          let resolvedSource = source;
+          let resolvedTarget = target;
+          if (source.kind === 'current_selection' && target.kind === 'current_selection') {
+            if (selectedPairRef.current.length < 2) {
+              throw new Error('Click two residues in the viewer first, then run measure distance between selected.');
+            }
+            [resolvedSource, resolvedTarget] = selectedPairRef.current;
+          }
+
+          const sourceAnchor = await resolveAnchorLoci(resolvedSource);
+          const targetAnchor = await resolveAnchorLoci(resolvedTarget);
+          const sourceLocation = StructureElement.Loci.getFirstLocation(sourceAnchor);
+          const targetLocation = StructureElement.Loci.getFirstLocation(targetAnchor);
+          if (sourceLocation && targetLocation && StructureElement.Location.areEqual(sourceLocation, targetLocation)) {
+            throw new Error('Source and target resolved to the same atom. Pick two different atoms or residues.');
+          }
+          const key = `distance:${selectionKey(resolvedSource)}:${selectionKey(resolvedTarget)}`;
           distanceOpsRef.current = [
             ...distanceOpsRef.current.filter((op) => op.key !== key),
-            { key, source, target },
+            { key, source: resolvedSource, target: resolvedTarget },
           ];
           await rebuildDistances();
         });
@@ -980,7 +1158,9 @@ const MoleculeViewer = forwardRef<MoleculeViewerHandle, { className?: string }>(
       rebuildDistances,
       rebuildLabels,
       reapplySceneDecorations,
+      representationExists,
       requireSelectionLoci,
+      resolveAnchorLoci,
       resetSceneOps,
     ]);
 

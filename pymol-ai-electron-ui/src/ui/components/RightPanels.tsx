@@ -451,6 +451,12 @@ const ToolBoxPanel: React.FC = () => {
           desc: 'Label residues or atoms within a target.',
           examples: ['Label residues in chain A', 'Label ligand'],
         },
+        {
+          key: 'clear_labels',
+          label: 'Clear Labels',
+          desc: 'Remove active labels from the viewer.',
+          examples: ['Clear labels', 'Remove labels'],
+        },
       ],
     },
     {
@@ -461,12 +467,6 @@ const ToolBoxPanel: React.FC = () => {
           label: 'Zoom Target',
           desc: 'Center the camera on a target.',
           examples: ['Zoom to ligand', 'Center on chain A'],
-        },
-        {
-          key: 'orient_selection',
-          label: 'Orient Target',
-          desc: 'Reorient the scene around a target.',
-          examples: ['Orient on chain B', 'Orient on ligand'],
         },
         {
           key: 'rotate_view',
@@ -483,7 +483,7 @@ const ToolBoxPanel: React.FC = () => {
           key: 'measure_distance',
           label: 'Measure Distance',
           desc: 'Create a distance object between two targets.',
-          examples: ['Measure distance between ligand and residue ASP in chain B'],
+          examples: ['Measure distance between ligand and residue ASP in chain B', 'Measure distance between selected'],
         },
         {
           key: 'show_contacts',

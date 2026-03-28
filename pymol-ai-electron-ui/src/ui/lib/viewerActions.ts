@@ -90,6 +90,11 @@ export async function executeCommandSpec(
         return { ok: true, message: `Labeled ${describeSelection(target)} (${mode} mode)` };
       }
 
+      case 'clear_labels': {
+        await viewer.clearLabels();
+        return { ok: true, message: 'Cleared labels' };
+      }
+
       case 'zoom_selection': {
         const target = args.target as SelectionSpec;
         if (!target) return { ok: false, message: 'Missing target' };
@@ -98,10 +103,7 @@ export async function executeCommandSpec(
       }
 
       case 'orient_selection': {
-        const target = args.target as SelectionSpec;
-        if (!target) return { ok: false, message: 'Missing target' };
-        await viewer.orientSelection(target);
-        return { ok: true, message: `Oriented on ${describeSelection(target)}` };
+        return { ok: false, message: 'Orient is not available in this NexMol build. Use zoom instead.' };
       }
 
       case 'measure_distance': {
@@ -185,6 +187,8 @@ function operationKey(spec: NormalizedSpec): string | null {
       return `transparency:${JSON.stringify(args.target || {})}:${args.representation || 'all'}`;
     case 'label_selection':
       return `label:${JSON.stringify(args.target || {})}:${args.mode || 'residue'}`;
+    case 'clear_labels':
+      return 'labels:clear';
     case 'measure_distance':
       return `distance:${JSON.stringify(args.source || {})}:${JSON.stringify(args.target || {})}`;
     case 'show_representation':
@@ -204,6 +208,7 @@ function shouldPersistOperation(spec: NormalizedSpec): boolean {
     'rotate_view',
     'zoom_selection',
     'orient_selection',
+    'clear_labels',
   ].includes(spec.name);
 }
 
@@ -242,17 +247,9 @@ export async function restoreViewerState(
   if (!viewerState) return [];
 
   const errors: string[] = [];
-  for (const op of viewerState.operations || []) {
-    const result = await executeCommandSpec(op, viewer);
-    if (!result.ok) {
-      errors.push(`${op.name}: ${result.message}`);
-    }
-  }
-
   try {
     await viewer.applySceneSnapshot({
       backgroundColor: viewerState.backgroundColor,
-      cameraSnapshot: viewerState.cameraSnapshot,
     });
   } catch (error: any) {
     errors.push(error?.message || 'Failed to restore viewer scene snapshot.');

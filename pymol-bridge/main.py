@@ -132,7 +132,7 @@ def _call_llm(prompt: str) -> dict:
     system_msg = (
         "You are a molecular visualization assistant. The user asks for exactly one simple action. "
         f"If the request contains multiple actions, respond with JSON error text: {json.dumps(ONLY_ONE_ACTION_ERROR)}.\n"
-        "Prefer currently supported native viewer commands whenever the prompt is about coloring, showing, hiding, isolating, removing, labeling, transparency, zooming, orienting, measuring distance, changing the background, rotating, or taking a snapshot.\n"
+        "Prefer currently supported native viewer commands whenever the prompt is about coloring, showing, hiding, isolating, removing, labeling, clearing labels, transparency, zooming, measuring distance, changing the background, rotating, or taking a snapshot.\n"
         "When the user says selected, selection, or current selection, encode it as {\"kind\":\"current_selection\"}.\n"
         "Do not invent unsupported target shapes.\n"
         "Respond with exactly one JSON OBJECT with keys:\n"
@@ -157,6 +157,7 @@ def _call_llm(prompt: str) -> dict:
         ' measure distance between selected -> {"name":"measure_distance","arguments":{"source":{"kind":"current_selection"},"target":{"kind":"current_selection"}}}\n'
         ' show ligand as sticks -> {"name":"show_representation","arguments":{"target":{"kind":"ligand"},"representation":"sticks"}}\n'
         ' label residues in chain A -> {"name":"label_selection","arguments":{"target":{"kind":"chain","chain":"A"},"mode":"residue"}}\n'
+        ' clear labels -> {"name":"clear_labels","arguments":{}}\n'
         ' set surface transparency to 0.4 on protein -> {"name":"set_transparency","arguments":{"target":{"kind":"protein"},"representation":"surface","value":0.4}}\n'
         ' measure distance between ligand and residue ASP in chain B -> {"name":"measure_distance","arguments":{"source":{"kind":"ligand"},"target":{"kind":"residue","residue":"ASP","chain":"B"}}}\n'
         ' color protein by chain -> {"name":"color_by_chain","arguments":{"target":{"kind":"protein"}}}\n'
