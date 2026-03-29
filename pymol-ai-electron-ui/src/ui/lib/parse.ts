@@ -1,14 +1,14 @@
 export type SelectionSpec =
   | { kind: 'all' }
-  | { kind: 'protein' }
-  | { kind: 'ligand' }
-  | { kind: 'water' }
-  | { kind: 'metals' }
-  | { kind: 'hydrogens' }
+  | { kind: 'protein'; chain?: string; object?: string }
+  | { kind: 'ligand'; chain?: string; object?: string }
+  | { kind: 'water'; chain?: string; object?: string }
+  | { kind: 'metals'; chain?: string; object?: string }
+  | { kind: 'hydrogens'; chain?: string; object?: string }
   | { kind: 'active_selection' }
   | { kind: 'current_selection' }
   | { kind: 'chain'; chain: string; object?: string }
-  | { kind: 'residue'; residue: string; chain?: string; resi?: string; object?: string }
+  | { kind: 'residue'; residue: string; chain?: string; resi?: string; object?: string; allMatches?: boolean }
   | { kind: 'atom'; atom: string; residue?: string; chain?: string; resi?: string; object?: string }
   | { kind: 'object'; object: string };
 
@@ -120,6 +120,9 @@ function normalizeResidue(value: string) {
   if (FULL_RESIDUE_NAMES[letters]) {
     return FULL_RESIDUE_NAMES[letters];
   }
+  if (letters.endsWith('S') && FULL_RESIDUE_NAMES[letters.slice(0, -1)]) {
+    return FULL_RESIDUE_NAMES[letters.slice(0, -1)];
+  }
   if (letters.length === 1 && RES_MAP[letters]) {
     return RES_MAP[letters];
   }
@@ -141,6 +144,16 @@ function parseTransparencyValue(value: string): number | null {
 function parseSequenceFormat(value: string | undefined): string | null {
   if (!value) return null;
   return SEQUENCE_FORMAT_ALIASES[clean(value).toLowerCase()] || null;
+}
+
+function normalizeScopedSimpleKind(value: string): 'protein' | 'ligand' | 'water' | 'metals' | 'hydrogens' | null {
+  const lower = value.trim().toLowerCase();
+  if (lower === 'protein') return 'protein';
+  if (lower === 'ligand') return 'ligand';
+  if (lower === 'water' || lower === 'waters' || lower === 'solvent') return 'water';
+  if (lower === 'metal' || lower === 'metals') return 'metals';
+  if (lower === 'hydrogen' || lower === 'hydrogens') return 'hydrogens';
+  return null;
 }
 
 function parseTarget(input: string, context?: SelectionTagContext | null): SelectionSpec | null {
@@ -186,12 +199,55 @@ function parseTarget(input: string, context?: SelectionTagContext | null): Selec
     return { kind: 'active_selection' };
   }
 
+  const scopedSimple = text.match(
+    /^(protein|ligand|water|waters|solvent|metal|metals|hydrogen|hydrogens)(?:\s+in\s+chain\s+([A-Za-z]))?(?:\s+in\s+object\s+([A-Za-z0-9_.-]+))?$/i
+  );
+  if (scopedSimple) {
+    const kind = normalizeScopedSimpleKind(scopedSimple[1]);
+    if (!kind) return null;
+    return {
+      kind,
+      ...(scopedSimple[2] ? { chain: scopedSimple[2].toUpperCase() } : {}),
+      ...(scopedSimple[3] ? { object: scopedSimple[3] } : {}),
+    } as SelectionSpec;
+  }
+
   const chain = text.match(/^chain\s+([A-Za-z])(?:\s+in\s+object\s+([A-Za-z0-9_.-]+))?$/i);
   if (chain) {
     return {
       kind: 'chain',
       chain: chain[1].toUpperCase(),
       ...(chain[2] ? { object: chain[2] } : {}),
+    };
+  }
+
+  const allResidueShorthand = text.match(
+    /^all\s+([A-Za-z]{1,3}|[A-Za-z]+)(?:\s+in\s+chain\s+([A-Za-z]))?(?:\s+in\s+object\s+([A-Za-z0-9_.-]+))?$/i
+  );
+  if (allResidueShorthand) {
+    const normalized = normalizeResidue(allResidueShorthand[1]);
+    if (!normalized || normalized.length !== 3) return null;
+    return {
+      kind: 'residue',
+      residue: normalized,
+      allMatches: true,
+      ...(allResidueShorthand[2] ? { chain: allResidueShorthand[2].toUpperCase() } : {}),
+      ...(allResidueShorthand[3] ? { object: allResidueShorthand[3] } : {}),
+    };
+  }
+
+  const allResidues = text.match(
+    /^(?:all\s+)?([A-Za-z]{1,3}|[A-Za-z]+)\s+residues?(?:\s+in\s+chain\s+([A-Za-z]))?(?:\s+in\s+object\s+([A-Za-z0-9_.-]+))?$/i
+  );
+  if (allResidues) {
+    const normalized = normalizeResidue(allResidues[1]);
+    if (!normalized || normalized.length !== 3) return null;
+    return {
+      kind: 'residue',
+      residue: normalized,
+      allMatches: true,
+      ...(allResidues[2] ? { chain: allResidues[2].toUpperCase() } : {}),
+      ...(allResidues[3] ? { object: allResidues[3] } : {}),
     };
   }
 
@@ -282,6 +338,11 @@ export function parsePromptToSpec(input: string, options?: { selectionTag?: Sele
     if (format) {
       return { name: 'set_sequence_view_format', arguments: { format } };
     }
+  }
+
+  // Measurement clearing
+  if (/^(?:remove|clear)\s+(?:distance\s+)?measurements?$/i.test(t) || /^(?:remove|clear)\s+distances?$/i.test(t)) {
+    return { name: 'clear_measurements', arguments: {} };
   }
 
   // Distance measurement

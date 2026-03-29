@@ -26,6 +26,10 @@ def test_normalize_residue_code_full_name():
     assert normalize_residue_code("serine (SER)") == "SER"
 
 
+def test_normalize_residue_code_plural_full_name():
+    assert normalize_residue_code("alanines") == "ALA"
+
+
 def test_compile_chain_selection():
     assert compile_selection_spec({"kind": "chain", "chain": "a"}) == "chain A"
 
@@ -62,6 +66,10 @@ def test_compile_atom_selection():
 
 def test_compile_object_selection():
     assert compile_selection_spec({"kind": "object", "object": "ligand_pose"}) == "%ligand_pose"
+
+
+def test_compile_scoped_ligand_selection():
+    assert compile_selection_spec({"kind": "ligand", "chain": "b", "object": "model1"}) == "organic and chain B and %model1"
 
 
 def test_normalize_legacy_color_residue_to_canonical():
@@ -134,6 +142,14 @@ def test_clear_labels_normalizes_with_selected_target():
     assert spec == {
         "name": "clear_labels",
         "arguments": {"target": {"kind": "active_selection"}},
+    }
+
+
+def test_clear_measurements_normalizes_without_arguments():
+    spec = normalize_command_spec({"name": "clear_measurements", "arguments": {}})
+    assert spec == {
+        "name": "clear_measurements",
+        "arguments": {},
     }
 
 
@@ -211,6 +227,25 @@ def test_orient_selection_is_normalized_for_compat_rejection():
         "name": "orient_selection",
         "arguments": {
             "target": {"kind": "chain", "chain": "B"},
+        },
+    }
+
+
+def test_measure_distance_preserves_scoped_ligand_and_plural_residue_target():
+    spec = normalize_command_spec(
+        {
+            "name": "measure_distance",
+            "arguments": {
+                "source": "ligand in chain b",
+                "target": {"kind": "residue", "residue": "asp", "chain": "b", "all_matches": True},
+            },
+        }
+    )
+    assert spec == {
+        "name": "measure_distance",
+        "arguments": {
+            "source": {"kind": "ligand", "chain": "B"},
+            "target": {"kind": "residue", "residue": "ASP", "chain": "B", "all_matches": True},
         },
     }
 

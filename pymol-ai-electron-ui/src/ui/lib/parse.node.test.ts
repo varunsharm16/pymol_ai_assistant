@@ -128,6 +128,29 @@ test('parses measure distance between ligand and residue', () => {
   );
 });
 
+test('parses scoped ligand to plural residue measurement', () => {
+  assert.deepEqual(
+    parsePromptToSpec('Measure distance between ligand in chain B and all ASP in chain B'),
+    {
+      name: 'measure_distance',
+      arguments: {
+        source: { kind: 'ligand', chain: 'B' },
+        target: { kind: 'residue', residue: 'ASP', chain: 'B', allMatches: true },
+      },
+    }
+  );
+});
+
+test('parses plural full residue names for labeling deterministically', () => {
+  assert.deepEqual(parsePromptToSpec('Label all alanines in chain B'), {
+    name: 'label_selection',
+    arguments: {
+      target: { kind: 'residue', residue: 'ALA', chain: 'B', allMatches: true },
+      mode: 'residue',
+    },
+  });
+});
+
 test('parses measure distance from X to Y phrasing', () => {
   assert.deepEqual(
     parsePromptToSpec('Measure the distance from ligand to residue ASP in chain B'),
@@ -148,6 +171,13 @@ test('parses measure distance between selected', () => {
       source: { kind: 'current_selection' },
       target: { kind: 'current_selection' },
     },
+  });
+});
+
+test('parses clear measurements deterministically', () => {
+  assert.deepEqual(parsePromptToSpec('Clear measurements'), {
+    name: 'clear_measurements',
+    arguments: {},
   });
 });
 

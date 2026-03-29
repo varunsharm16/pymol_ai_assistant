@@ -38,6 +38,7 @@ CANONICAL_ACTIONS = {
     "set_transparency",
     "label_selection",
     "clear_labels",
+    "clear_measurements",
     "zoom_selection",
     "measure_distance",
     "show_contacts",
@@ -140,6 +141,8 @@ def normalize_residue_code(residue: str, residue_map: dict[str, str] | None = No
     letters = "".join(ch for ch in raw if ch.isalpha())
     if letters in FULL_RESIDUE_NAMES:
         return FULL_RESIDUE_NAMES[letters]
+    if letters.endswith("S") and letters[:-1] in FULL_RESIDUE_NAMES:
+        return FULL_RESIDUE_NAMES[letters[:-1]]
     if len(letters) == 1 and residue_map and letters in residue_map:
         return residue_map[letters]
     return letters
@@ -148,18 +151,24 @@ def normalize_residue_code(residue: str, residue_map: dict[str, str] | None = No
 def compile_selection_spec(target: dict[str, Any], residue_map: dict[str, str] | None = None) -> str:
     normalized = normalize_selection_spec(target, residue_map=residue_map)
     kind = normalized["kind"]
+    def _scope(selection: str) -> str:
+        if normalized.get("chain"):
+            selection += f" and chain {normalized['chain']}"
+        if normalized.get("object"):
+            selection += f" and %{normalized['object']}"
+        return selection
     if kind == "all":
         return "all"
     if kind == "protein":
-        return "polymer.protein"
+        return _scope("polymer.protein")
     if kind == "ligand":
-        return "organic"
+        return _scope("organic")
     if kind == "water":
-        return "solvent"
+        return _scope("solvent")
     if kind == "metals":
-        return "metals"
+        return _scope("metals")
     if kind == "hydrogens":
-        return "hydro"
+        return _scope("hydro")
     if kind == "active_selection":
         return "sele"
     if kind == "current_selection":
@@ -198,7 +207,12 @@ def describe_selection_spec(target: dict[str, Any], residue_map: dict[str, str] 
     normalized = normalize_selection_spec(target, residue_map=residue_map)
     kind = normalized["kind"]
     if kind in SIMPLE_SELECTION_KINDS:
-        return kind.replace("_", " ")
+        desc = kind.replace("_", " ")
+        if normalized.get("chain"):
+            desc += f" in chain {normalized['chain']}"
+        if normalized.get("object"):
+            desc += f" in object {normalized['object']}"
+        return desc
     if kind == "chain":
         desc = f"chain {normalized['chain']}"
         if normalized.get("object"):
@@ -277,6 +291,21 @@ def _coerce_selection_spec(target: Any) -> dict[str, Any] | None:
     if lower in simple_map:
         return {"kind": simple_map[lower]}
 
+    scoped_simple = re.match(
+        r"^(protein|ligand|water|waters|solvent|metal|metals|hydrogen|hydrogens)(?:\s+in\s+chain\s+([A-Za-z]))?(?:\s+in\s+object\s+([A-Za-z0-9_.-]+))?$",
+        text,
+        re.IGNORECASE,
+    )
+    if scoped_simple:
+        kind = simple_map.get(scoped_simple.group(1).lower())
+        if kind:
+            coerced: dict[str, Any] = {"kind": kind}
+            if scoped_simple.group(2):
+                coerced["chain"] = scoped_simple.group(2).upper()
+            if scoped_simple.group(3):
+                coerced["object"] = scoped_simple.group(3)
+            return coerced
+
     if lower.startswith("object "):
         obj = text.split(None, 1)[1].strip()
         return {"kind": "object", "object": obj} if obj else None
@@ -300,6 +329,36 @@ def _coerce_selection_spec(target: Any) -> dict[str, Any] | None:
                 coerced["chain"] = residue_match.group(3).upper()
             if residue_match.group(4):
                 coerced["object"] = residue_match.group(4)
+            return coerced
+
+    all_residue_match = re.match(
+        r"^(?:all\s+)([A-Za-z]{1,3}|[A-Za-z]+)(?:\s+in\s+chain\s+([A-Za-z]))?(?:\s+in\s+object\s+([A-Za-z0-9_.-]+))?$",
+        text,
+        re.IGNORECASE,
+    )
+    if all_residue_match:
+        residue = normalize_residue_code(all_residue_match.group(1))
+        if residue and len(residue) == 3:
+            coerced = {"kind": "residue", "residue": residue, "all_matches": True}
+            if all_residue_match.group(2):
+                coerced["chain"] = all_residue_match.group(2).upper()
+            if all_residue_match.group(3):
+                coerced["object"] = all_residue_match.group(3)
+            return coerced
+
+    all_residues_match = re.match(
+        r"^(?:all\s+)?([A-Za-z]{1,3}|[A-Za-z]+)\s+residues?(?:\s+in\s+chain\s+([A-Za-z]))?(?:\s+in\s+object\s+([A-Za-z0-9_.-]+))?$",
+        text,
+        re.IGNORECASE,
+    )
+    if all_residues_match:
+        residue = normalize_residue_code(all_residues_match.group(1))
+        if residue and len(residue) == 3:
+            coerced = {"kind": "residue", "residue": residue, "all_matches": True}
+            if all_residues_match.group(2):
+                coerced["chain"] = all_residues_match.group(2).upper()
+            if all_residues_match.group(3):
+                coerced["object"] = all_residues_match.group(3)
             return coerced
 
     atom_match = re.match(
@@ -336,7 +395,15 @@ def normalize_selection_spec(
         raise ValueError("target.kind is required")
 
     if kind in SIMPLE_SELECTION_KINDS:
-        return {"kind": kind}
+        normalized = {"kind": kind}
+        if kind != "all":
+            chain = str(target.get("chain") or "").strip().upper()
+            if chain:
+                normalized["chain"] = chain
+            obj = str(target.get("object") or "").strip()
+            if obj:
+                normalized["object"] = obj
+        return normalized
 
     if kind == "chain":
         chain = str(target.get("chain") or "").strip().upper()
@@ -362,6 +429,8 @@ def normalize_selection_spec(
         obj = str(target.get("object") or "").strip()
         if obj:
             normalized["object"] = obj
+        if target.get("all_matches") is True:
+            normalized["all_matches"] = True
         return normalized
 
     if kind == "atom":

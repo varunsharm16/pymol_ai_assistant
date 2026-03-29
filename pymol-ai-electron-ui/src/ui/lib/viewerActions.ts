@@ -131,6 +131,11 @@ export async function executeCommandSpec(
         return { ok: true, message: `Measured distance between ${describeSelection(source)} and ${describeSelection(target)}` };
       }
 
+      case 'clear_measurements': {
+        await viewer.clearDistanceMeasurements();
+        return { ok: true, message: 'Cleared measurements' };
+      }
+
       case 'set_background': {
         const color = args.color as string;
         if (!color) return { ok: false, message: 'Missing color' };
@@ -225,8 +230,10 @@ function operationKey(spec: NormalizedSpec): string | null {
       return `label:${JSON.stringify(args.target || {})}:${args.mode || 'residue'}`;
     case 'clear_labels':
       return 'labels:clear';
-    case 'measure_distance':
-      return `distance:${JSON.stringify(args.source || {})}:${JSON.stringify(args.target || {})}`;
+    case 'measure_distance': {
+      const pair = [JSON.stringify(args.source || {}), JSON.stringify(args.target || {})].sort();
+      return `distance:${pair[0]}:${pair[1]}`;
+    }
     case 'show_representation':
     case 'hide_representation':
       return `representation:${spec.name}:${JSON.stringify(args.target || {})}:${args.representation || 'default'}`;
@@ -245,6 +252,7 @@ function shouldPersistOperation(spec: NormalizedSpec): boolean {
     'zoom_selection',
     'orient_selection',
     'clear_labels',
+    'clear_measurements',
   ].includes(spec.name);
 }
 
@@ -253,7 +261,10 @@ export function updateViewerStateAfterCommand(
   spec: NormalizedSpec,
   snapshot: { backgroundColor?: string; cameraSnapshot?: any }
 ): ViewerState {
-  const nextOperations = [...(current?.operations || [])];
+  let nextOperations = [...(current?.operations || [])];
+  if (spec.name === 'clear_measurements') {
+    nextOperations = nextOperations.filter((op) => op.name !== 'measure_distance');
+  }
   if (shouldPersistOperation(spec)) {
     const cloned = cloneSpec(spec);
     const key = operationKey(cloned);
@@ -299,12 +310,18 @@ export async function restoreViewerState(
  */
 function describeSelection(spec: SelectionSpec): string {
   const kind = spec.kind;
+  const withScope = (base: string) => {
+    let desc = base;
+    if (spec.chain) desc += ` in chain ${spec.chain}`;
+    if (spec.object) desc += ` in object ${spec.object}`;
+    return desc;
+  };
   if (kind === 'all') return 'everything';
-  if (kind === 'protein') return 'protein';
-  if (kind === 'ligand') return 'ligand';
-  if (kind === 'water') return 'waters';
-  if (kind === 'metals') return 'metals';
-  if (kind === 'hydrogens') return 'hydrogens';
+  if (kind === 'protein') return withScope('protein');
+  if (kind === 'ligand') return withScope('ligand');
+  if (kind === 'water') return withScope('waters');
+  if (kind === 'metals') return withScope('metals');
+  if (kind === 'hydrogens') return withScope('hydrogens');
   if (kind === 'active_selection') return 'selected residues';
   if (kind === 'current_selection') return 'current selection';
 
@@ -312,9 +329,10 @@ function describeSelection(spec: SelectionSpec): string {
     return `chain ${spec.chain}`;
   }
   if (kind === 'residue') {
-    let desc = `residue ${spec.residue}`;
+    let desc = spec.allMatches && !spec.resi ? `all ${spec.residue} residues` : `residue ${spec.residue}`;
     if (spec.resi) desc += ` ${spec.resi}`;
     if (spec.chain) desc += ` in chain ${spec.chain}`;
+    if (spec.object) desc += ` in object ${spec.object}`;
     return desc;
   }
   if (kind === 'atom') {

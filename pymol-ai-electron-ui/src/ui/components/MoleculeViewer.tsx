@@ -83,6 +83,7 @@ export type SelectionSpec = {
   resi?: string;
   atom?: string;
   object?: string;
+  allMatches?: boolean;
 };
 
 export interface MoleculeViewerHandle {
@@ -100,6 +101,7 @@ export interface MoleculeViewerHandle {
   zoomTo: (selection: SelectionSpec) => Promise<void>;
   orientSelection: (selection: SelectionSpec) => Promise<void>;
   measureDistance: (source: SelectionSpec, target: SelectionSpec) => Promise<void>;
+  clearDistanceMeasurements: () => Promise<void>;
   setBackground: (color: string) => Promise<void>;
   rotateView: (axis: string, angle: number) => Promise<void>;
   snapshot: () => Promise<string | null>;
@@ -179,16 +181,33 @@ const SequencePanel: React.FC<{
 
 function describeSelection(spec: SelectionSpec): string {
   const kind = spec.kind;
+  const withScope = (base: string) => {
+    let desc = base;
+    if (spec.chain) desc += ` in chain ${spec.chain}`;
+    if (spec.object) desc += ` in object ${spec.object}`;
+    return desc;
+  };
   if (kind === 'all') return 'everything';
-  if (kind === 'protein') return 'protein';
-  if (kind === 'ligand') return 'ligand';
-  if (kind === 'water') return 'waters';
-  if (kind === 'metals') return 'metals';
-  if (kind === 'hydrogens') return 'hydrogens';
+  if (kind === 'protein') return withScope('protein');
+  if (kind === 'ligand') return withScope('ligand');
+  if (kind === 'water') return withScope('waters');
+  if (kind === 'metals') return withScope('metals');
+  if (kind === 'hydrogens') return withScope('hydrogens');
   if (kind === 'active_selection') return 'selected residues';
   if (kind === 'current_selection') return 'current selection';
   if (kind === 'chain') return `chain ${spec.chain}`;
-  if (kind === 'residue') return `residue ${spec.residue}${spec.resi ? ` ${spec.resi}` : ''}${spec.chain ? ` in chain ${spec.chain}` : ''}`;
+  if (kind === 'residue') {
+    if (spec.allMatches && !spec.resi) {
+      let desc = `all ${spec.residue} residues`;
+      if (spec.chain) desc += ` in chain ${spec.chain}`;
+      if (spec.object) desc += ` in object ${spec.object}`;
+      return desc;
+    }
+    let desc = `residue ${spec.residue}${spec.resi ? ` ${spec.resi}` : ''}`;
+    if (spec.chain) desc += ` in chain ${spec.chain}`;
+    if (spec.object) desc += ` in object ${spec.object}`;
+    return desc;
+  }
   if (kind === 'atom') return `atom ${spec.atom}${spec.residue ? ` in ${spec.residue}` : ''}${spec.resi ? ` ${spec.resi}` : ''}${spec.chain ? ` chain ${spec.chain}` : ''}`;
   if (kind === 'object') return `object ${spec.object}`;
   return kind;
@@ -205,6 +224,11 @@ function selectionKey(spec: SelectionSpec): string {
     });
   }
   return JSON.stringify(spec);
+}
+
+function distanceOperationKey(source: SelectionSpec, target: SelectionSpec): string {
+  const pair = [selectionKey(source), selectionKey(target)].sort();
+  return `distance:${pair[0]}:${pair[1]}`;
 }
 
 function representationToMolstarType(repr: string): string {
@@ -228,6 +252,13 @@ function representationToMolstarType(repr: string): string {
 
 function representationTypeFilter(repr: string): string[] {
   return [representationToMolstarType(repr)];
+}
+
+function representationTag(repr: string): string {
+  const key = repr.trim().toLowerCase();
+  if (key === 'mesh') return 'nexmol-repr-mesh';
+  if (key === 'surface') return 'nexmol-repr-surface';
+  return `nexmol-repr-${representationToMolstarType(repr)}`;
 }
 
 function isSurfaceRepresentation(repr: string): boolean {
@@ -290,10 +321,18 @@ function colorToMolstar(value: string): ReturnType<typeof Color.fromHexStyle> {
 
 function selectionSchema(spec: SelectionSpec): any {
   if (spec.kind === 'metals') {
-    return { items: { type_symbol: METAL_ELEMENTS } };
+    return {
+      items: {
+        type_symbol: METAL_ELEMENTS,
+        ...(spec.chain ? { auth_asym_id: spec.chain } : {}),
+      },
+    };
   }
   if (spec.kind === 'hydrogens') {
-    return { type_symbol: 'H' };
+    return {
+      type_symbol: 'H',
+      ...(spec.chain ? { auth_asym_id: spec.chain } : {}),
+    };
   }
   if (spec.kind === 'chain') {
     return { auth_asym_id: spec.chain };
@@ -407,24 +446,38 @@ const MoleculeViewer = forwardRef<MoleculeViewerHandle, { className?: string }>(
       distanceOpsRef.current = [];
     }, []);
 
+    const applyScopedLociFilters = useCallback((loci: any, spec: SelectionSpec, structure: any) => {
+      let scoped = loci;
+      if (spec.chain) {
+        scoped = StructureElement.Loci.intersect(
+          scoped,
+          StructureElement.Schema.toLoci(structure, { auth_asym_id: spec.chain })
+        );
+      }
+      return scoped;
+    }, []);
+
     const resolveNamedSelection = useCallback(async (spec: SelectionSpec, structure: any) => {
       if (spec.kind === 'protein') {
-        return StructureSelection.toLociWithSourceUnits(
+        const loci = StructureSelection.toLociWithSourceUnits(
           await StructureSelectionQueries.protein.getSelection(getPlugin(), undefined as any, structure)
         );
+        return applyScopedLociFilters(loci, spec, structure);
       }
       if (spec.kind === 'ligand') {
-        return StructureSelection.toLociWithSourceUnits(
+        const loci = StructureSelection.toLociWithSourceUnits(
           await StructureSelectionQueries.ligand.getSelection(getPlugin(), undefined as any, structure)
         );
+        return applyScopedLociFilters(loci, spec, structure);
       }
       if (spec.kind === 'water') {
-        return StructureSelection.toLociWithSourceUnits(
+        const loci = StructureSelection.toLociWithSourceUnits(
           await StructureSelectionQueries.water.getSelection(getPlugin(), undefined as any, structure)
         );
+        return applyScopedLociFilters(loci, spec, structure);
       }
       return null;
-    }, [getPlugin]);
+    }, [applyScopedLociFilters, getPlugin]);
 
     const resolveSelection = useCallback(async (spec: SelectionSpec): Promise<SelectionResolution> => {
       const structure = getRootStructure();
@@ -568,51 +621,70 @@ const MoleculeViewer = forwardRef<MoleculeViewerHandle, { className?: string }>(
     const addRepresentationToComponent = useCallback(async (component: any, representation: string) => {
       const plugin = getPlugin();
       const representationType = representationToMolstarType(representation);
-
-      if (!isSurfaceRepresentation(representation)) {
-        await plugin.managers.structure.component.addRepresentation([component], representationType);
-        return;
-      }
-
       const options = (plugin.managers.structure.component as any).state?.options || {};
       const hydrogens = options.hydrogens || 'only-polar';
+      const typeParams: Record<string, any> = {
+        ignoreHydrogens: hydrogens !== 'all',
+        ignoreHydrogensVariant: hydrogens === 'only-polar' ? 'non-polar' : 'all',
+        quality: options.visualQuality || 'auto',
+        ignoreLight: options.ignoreLight ?? false,
+        material: options.materialStyle,
+        clip: options.clipObjects,
+      };
+
+      if (isSurfaceRepresentation(representation)) {
+        typeParams.visuals = surfaceVisualsForRepresentation(representation);
+      }
+
       await plugin.builders.structure.representation.addRepresentation(component.cell, {
         type: representationType,
-        typeParams: {
-          ignoreHydrogens: hydrogens !== 'all',
-          ignoreHydrogensVariant: hydrogens === 'only-polar' ? 'non-polar' : 'all',
-          quality: options.visualQuality || 'auto',
-          ignoreLight: options.ignoreLight ?? false,
-          material: options.materialStyle,
-          clip: options.clipObjects,
-          visuals: surfaceVisualsForRepresentation(representation),
-        },
-      } as any);
+        typeParams,
+      } as any, {
+        tag: representationTag(representation),
+      });
     }, [getPlugin]);
 
-    const representationExists = useCallback(async (selection: SelectionSpec, representation: string) => {
+    const getMatchingRepresentationsOnComponent = useCallback((component: any, representation: string) => {
+      const representations = Array.isArray(component?.representations) ? component.representations : [];
       const targetType = representationToMolstarType(representation);
+      const targetTag = representationTag(representation);
+
+      return representations.filter((item: any) => {
+        if (item?.cell?.transform?.params?.type?.name !== targetType) {
+          return false;
+        }
+        if (!isSurfaceRepresentation(representation)) {
+          return true;
+        }
+        const tags = item?.cell?.transform?.tags || [];
+        return Array.isArray(tags) && tags.includes(targetTag);
+      });
+    }, []);
+
+    const getOverlappingMatchingRepresentations = useCallback(async (selection: SelectionSpec, representation: string) => {
       const targetLoci = await resolveSelectionSilently(selection);
-      if (!targetLoci) return false;
+      if (!targetLoci) return [];
       const root = getRootStructure();
 
-      return getAllComponents().some((component: any) => {
-        if (!Array.isArray(component.representations)) return false;
-        const hasType = component.representations.some(
-          (item: any) => item.cell.transform.params?.type?.name === targetType
-        );
-        if (!hasType) return false;
-
-        const componentStructure = component.cell?.obj?.data;
-        if (!componentStructure) return false;
+      return getAllComponents().flatMap((component: any) => {
+        const componentStructure = component?.cell?.obj?.data;
+        if (!componentStructure) return [];
 
         const componentLoci = StructureElement.Loci.remap(
           Structure.toStructureElementLoci(componentStructure),
           root
         );
-        return StructureElement.Loci.areIntersecting(componentLoci, targetLoci);
+        if (!StructureElement.Loci.areIntersecting(componentLoci, targetLoci)) {
+          return [];
+        }
+
+        return getMatchingRepresentationsOnComponent(component, representation);
       });
-    }, [getAllComponents, getRootStructure, resolveSelectionSilently]);
+    }, [getAllComponents, getMatchingRepresentationsOnComponent, getRootStructure, resolveSelectionSilently]);
+
+    const representationExists = useCallback(async (selection: SelectionSpec, representation: string) => {
+      return (await getOverlappingMatchingRepresentations(selection, representation)).length > 0;
+    }, [getOverlappingMatchingRepresentations]);
 
     const clearMeasurements = useCallback(async (kind: 'labels' | 'distances' | 'all' = 'all') => {
       const plugin = getPlugin();
@@ -951,6 +1023,37 @@ const MoleculeViewer = forwardRef<MoleculeViewerHandle, { className?: string }>(
       return entry.ca || entry.p || entry.heavy || entry.first;
     }, []);
 
+    const isExpandableMeasurementSelection = useCallback((spec: SelectionSpec) => {
+      return spec.kind === 'residue' && spec.allMatches === true && !spec.resi;
+    }, []);
+
+    const expandMeasurementSelections = useCallback(async (spec: SelectionSpec) => {
+      if (!isExpandableMeasurementSelection(spec)) {
+        return [spec];
+      }
+
+      const loci = await requireSelectionLoci(spec);
+      const selections = new Map<string, SelectionSpec>();
+      StructureElement.Loci.forEachLocation(loci, (location) => {
+        const residue = StructureProperties.atom.label_comp_id(location) || '';
+        const resi = StructureProperties.residue.auth_seq_id(location);
+        if (!residue || !Number.isFinite(resi)) {
+          return;
+        }
+        const chain = StructureProperties.chain.auth_asym_id(location) || StructureProperties.chain.label_asym_id(location) || undefined;
+        const selection: SelectionSpec = {
+          kind: 'residue',
+          residue,
+          resi: String(resi),
+          ...(chain ? { chain } : {}),
+          ...(spec.object ? { object: spec.object } : {}),
+        };
+        selections.set(selectionKey(selection), selection);
+      });
+
+      return [...selections.values()];
+    }, [isExpandableMeasurementSelection, requireSelectionLoci]);
+
     const resolveAnchorLoci = useCallback(async (spec: SelectionSpec) => {
       const loci = await requireSelectionLoci(spec);
       const location = chooseAnchorLocation(spec, loci);
@@ -1137,7 +1240,6 @@ const MoleculeViewer = forwardRef<MoleculeViewerHandle, { className?: string }>(
 
       showRepresentation(selection: SelectionSpec, representation: string) {
         return enqueue(async () => {
-          const plugin = getPlugin();
           if (isSurfaceRepresentation(representation)) {
             const allowedKinds = new Set(['protein', 'ligand', 'residue', 'chain', 'all', 'object', 'current_selection', 'active_selection']);
             if (!allowedKinds.has(selection.kind)) {
@@ -1146,8 +1248,9 @@ const MoleculeViewer = forwardRef<MoleculeViewerHandle, { className?: string }>(
           }
           const loci = await requireSelectionLoci(selection);
           const component = await createComponentForLoci(loci, describeSelection(selection));
-          await plugin.managers.structure.component.removeRepresentations([component]);
-          await addRepresentationToComponent(component, representation);
+          if (getMatchingRepresentationsOnComponent(component, representation).length === 0) {
+            await addRepresentationToComponent(component, representation);
+          }
           await reapplySceneDecorations();
         });
       },
@@ -1164,12 +1267,11 @@ const MoleculeViewer = forwardRef<MoleculeViewerHandle, { className?: string }>(
             return;
           }
 
-          const targetType = representationToMolstarType(representationType);
-          const repr = component.representations.find((item: any) => item.cell.transform.params?.type?.name === targetType);
-          if (!repr) {
+          const matching = getMatchingRepresentationsOnComponent(component, representationType);
+          if (!matching.length) {
             throw new Error(`No ${representationType} representation is active for ${describeSelection(selection)}.`);
           }
-          await plugin.managers.structure.component.removeRepresentations([component], repr);
+          await plugin.managers.structure.hierarchy.remove(matching, true);
           await reapplySceneDecorations();
         });
       },
@@ -1310,21 +1412,50 @@ const MoleculeViewer = forwardRef<MoleculeViewerHandle, { className?: string }>(
             [resolvedSource, resolvedTarget] = selectedPairRef.current;
           }
 
-          const sourceAnchor = await resolveAnchorLoci(resolvedSource);
-          const targetAnchor = await resolveAnchorLoci(resolvedTarget);
-          const sourceLocation = StructureElement.Loci.getFirstLocation(sourceAnchor);
-          const targetLocation = StructureElement.Loci.getFirstLocation(targetAnchor);
-          if (sourceLocation && targetLocation && StructureElement.Location.areEqual(sourceLocation, targetLocation)) {
+          const sourcePlural = isExpandableMeasurementSelection(resolvedSource);
+          const targetPlural = isExpandableMeasurementSelection(resolvedTarget);
+          if (sourcePlural && targetPlural) {
+            throw new Error('Measuring between two plural targets is not supported yet. Narrow one side first.');
+          }
+
+          const sources = await expandMeasurementSelections(resolvedSource);
+          const targets = await expandMeasurementSelections(resolvedTarget);
+          const nextOps = new Map(distanceOpsRef.current.map((op) => [op.key, op] as const));
+          let created = 0;
+
+          for (const expandedSource of sources) {
+            for (const expandedTarget of targets) {
+              const sourceAnchor = await resolveAnchorLoci(expandedSource);
+              const targetAnchor = await resolveAnchorLoci(expandedTarget);
+              const sourceLocation = StructureElement.Loci.getFirstLocation(sourceAnchor);
+              const targetLocation = StructureElement.Loci.getFirstLocation(targetAnchor);
+              if (sourceLocation && targetLocation && StructureElement.Location.areEqual(sourceLocation, targetLocation)) {
+                continue;
+              }
+              const key = distanceOperationKey(expandedSource, expandedTarget);
+              nextOps.set(key, {
+                key,
+                source: expandedSource,
+                target: expandedTarget,
+                mode: selectedPairMode ? 'selected_pair' : 'explicit',
+              });
+              created += 1;
+            }
+          }
+
+          if (!created) {
             throw new Error('Source and target resolved to the same atom. Pick two different atoms or residues.');
           }
-          const key = selectedPairMode
-            ? 'distance:selected_pair'
-            : `distance:${selectionKey(resolvedSource)}:${selectionKey(resolvedTarget)}`;
-          distanceOpsRef.current = [
-            ...distanceOpsRef.current.filter((op) => (selectedPairMode ? op.mode !== 'selected_pair' : op.key !== key)),
-            { key, source: resolvedSource, target: resolvedTarget, mode: selectedPairMode ? 'selected_pair' : 'explicit' },
-          ];
+
+          distanceOpsRef.current = [...nextOps.values()];
           await rebuildDistances();
+        });
+      },
+
+      clearDistanceMeasurements() {
+        return enqueue(async () => {
+          distanceOpsRef.current = [];
+          await clearMeasurements('distances');
         });
       },
 
@@ -1429,11 +1560,13 @@ const MoleculeViewer = forwardRef<MoleculeViewerHandle, { className?: string }>(
       clearSelectionState,
       createComponentForLoci,
       enqueue,
+      expandMeasurementSelections,
       extractSelectionSpec,
       getAllComponents,
       getLoadedStructure,
       getPlugin,
       getRootStructure,
+      isExpandableMeasurementSelection,
       objectMatchesCurrent,
       rebuildDistances,
       rebuildLabels,
