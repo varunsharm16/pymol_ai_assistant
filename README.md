@@ -8,9 +8,11 @@ End users should download packaged builds from [GitHub Releases](https://github.
 
 Packaged alpha builds bundle the NexMol backend. End users should not need to install Python, Node.js, or npm separately.
 
+Current macOS release asset: `NexMol-<version>-arm64.dmg`
+
 ## Install on macOS
 
-1. Download the latest macOS release asset from [GitHub Releases](https://github.com/varunsharm16/pymol_ai_assistant/releases).
+1. Download the latest macOS `.dmg` release asset from [GitHub Releases](https://github.com/varunsharm16/pymol_ai_assistant/releases).
 2. Open the downloaded DMG.
 3. Drag `NexMol.app` into `Applications`.
 4. Launch the app from `Applications`.
