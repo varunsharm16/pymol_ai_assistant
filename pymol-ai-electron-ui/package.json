@@ -1,6 +1,6 @@
 {
   "name": "pymol-ai-assistant-electron",
-  "version": "0.1.1-alpha",
+  "version": "0.2.1-alpha",
   "private": true,
   "type": "module",
   "main": "electron/main.cjs",
@@ -8,8 +8,44 @@
     "dev": "concurrently -k \"vite\" \"wait-on tcp:5173 && cross-env VITE_DEV=1 electron .\"",
     "build": "vite build",
     "build:electron": "esbuild electron/main.ts --bundle --platform=node --external:electron --outfile=electron/main.cjs && esbuild electron/preload.ts --bundle --platform=node --external:electron --outfile=electron/preload.cjs",
+    "build:backend": "node scripts/build-backend.mjs",
+    "package:mac": "npm run build && npm run build:electron && npm run build:backend && cross-env CSC_IDENTITY_AUTO_DISCOVERY=false electron-builder --mac dmg dir",
     "preview": "vite preview",
     "test:parser": "rimraf .tmp-tests && tsc -p tsconfig.test.json && node --test .tmp-tests/ui/lib/*.test.js"
+  },
+  "build": {
+    "appId": "com.nexmol.app",
+    "productName": "NexMol",
+    "directories": {
+      "output": "release"
+    },
+    "files": [
+      "dist/**",
+      "!dist/nexmol-backend-port.json",
+      "electron/**/*.cjs",
+      "package.json"
+    ],
+    "extraResources": [
+      {
+        "from": "build/backend-dist/nexmol-backend",
+        "to": "backend",
+        "filter": [
+          "**/*",
+          "!*.pyc"
+        ]
+      }
+    ],
+    "mac": {
+      "artifactName": "${productName}-${version}-${arch}.${ext}",
+      "category": "public.app-category.education",
+      "target": [
+        "dmg",
+        "dir"
+      ]
+    },
+    "dmg": {
+      "sign": false
+    }
   },
   "dependencies": {
     "lucide-react": "0.539.0",
@@ -27,6 +63,7 @@
     "concurrently": "9.0.1",
     "cross-env": "7.0.3",
     "electron": "31.3.0",
+    "electron-builder": "^24.13.3",
     "esbuild": "0.23.0",
     "postcss": "8.4.38",
     "rimraf": "6.0.1",

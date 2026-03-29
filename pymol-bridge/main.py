@@ -598,6 +598,8 @@ def _find_free_port() -> int:
 
 def _publish_dev_backend_port(port: int) -> None:
     """Best-effort publish of the backend port for browser-mode dev."""
+    if getattr(sys, "frozen", False):
+        return
     try:
         _DEV_BACKEND_PORT_PATH.parent.mkdir(parents=True, exist_ok=True)
         _DEV_BACKEND_PORT_PATH.write_text(

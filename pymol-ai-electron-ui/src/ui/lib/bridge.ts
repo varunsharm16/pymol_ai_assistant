@@ -31,6 +31,9 @@ declare global {
       }) => Promise<{ canceled: boolean; filePaths?: string[] }>;
       writeFile: (opts: { path: string; dataBase64: string }) => Promise<{ ok: boolean }>;
       getBackendPort: () => Promise<number | null>;
+      getBackendStartupError: () => Promise<string | null>;
+      isPackagedApp: () => Promise<boolean>;
+      getAppVersion: () => Promise<string>;
       getNodeVersion: () => Promise<string>;
       getPythonVersion: () => Promise<string>;
     };
@@ -71,7 +74,8 @@ async function getBaseUrl(): Promise<string> {
       _baseUrl = `http://127.0.0.1:${port}`;
       return _baseUrl;
     }
-    throw new Error('Backend port not ready yet');
+    const startupError = await window.api.getBackendStartupError?.();
+    throw new Error(startupError || 'Backend port not ready yet');
   }
 
   // Allow ?port= query param override for dev-in-browser
@@ -136,6 +140,22 @@ function get<T = any>(path: string): Promise<BridgeResult<T>> {
 
 function delay(ms: number) {
   return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+export async function isPackagedApp(): Promise<boolean> {
+  try {
+    return await window.api?.isPackagedApp?.() || false;
+  } catch {
+    return false;
+  }
+}
+
+export async function getAppVersion(): Promise<string> {
+  try {
+    return (await window.api?.getAppVersion?.()) || '0.2.1-alpha';
+  } catch {
+    return '0.2.1-alpha';
+  }
 }
 
 function isRetryable(res: BridgeResult<any>) {

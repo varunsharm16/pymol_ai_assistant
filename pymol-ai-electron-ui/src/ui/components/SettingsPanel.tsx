@@ -1,6 +1,6 @@
 import React from 'react';
 import { useStore } from '../store';
-import { saveApiKey, validateApiKey } from '../lib/bridge';
+import { getAppVersion, saveApiKey, validateApiKey } from '../lib/bridge';
 import { Eye, EyeOff, CheckCircle, XCircle, Loader2 } from 'lucide-react';
 
 const SettingsPanel: React.FC = () => {
@@ -9,6 +9,11 @@ const SettingsPanel: React.FC = () => {
   const [show, setShow] = React.useState(false);
   const [status, setStatus] = React.useState<'idle' | 'validating' | 'valid' | 'invalid' | 'saving' | 'saved' | 'error'>('idle');
   const [msg, setMsg] = React.useState('');
+  const [version, setVersion] = React.useState('0.2.1-alpha');
+
+  React.useEffect(() => {
+    getAppVersion().then(setVersion);
+  }, []);
 
   const handleValidate = async () => {
     if (!key.trim()) return;
@@ -126,8 +131,7 @@ const SettingsPanel: React.FC = () => {
         {/* Version */}
         <div className="pt-4 border-t border-neutral-700">
           <div className="text-xs text-neutral-500">
-            PyMOL AI Assistant{' '}
-            <span className="text-neutral-300">v0.1.0-alpha</span>
+            NexMol <span className="text-neutral-300">v{version}</span>
           </div>
         </div>
       </div>

@@ -110,6 +110,13 @@ Example:
 http://localhost:5173/?port=51234
 ```
 
+## How to Install Alpha Builds
+
+- This alpha build is currently unsigned.
+- On macOS, you may need to right-click the app and choose `Open`.
+- On Windows, click `More info` and then `Run anyway` if SmartScreen appears.
+- Packaged alpha builds bundle the NexMol backend. End users should not need to install Python separately.
+
 ## Features
 
 ## Command Capability Matrix

@@ -8,6 +8,7 @@ import { createInterface } from 'node:readline';
 let mainWindow: BrowserWindow | null = null;
 let backendProcess: ChildProcess | null = null;
 let backendPort: number | null = null;
+let backendStartupError: string | null = null;
 
 const gotLock = app.requestSingleInstanceLock();
 if (!gotLock) {
@@ -42,18 +43,80 @@ function findPython(): string {
 }
 
 function getBridgeDir(): string {
-  // In development: project root / pymol-bridge
-  // In packaged app: resources / pymol-bridge
-  if (app.isPackaged) {
-    return join(process.resourcesPath, 'pymol-bridge');
-  }
   return resolve(__dirname, '..', '..', 'pymol-bridge');
+}
+
+function getPackagedBackendDir(): string {
+  return join(process.resourcesPath, 'backend');
+}
+
+function getPackagedBackendExecutable(): string {
+  const executable = process.platform === 'win32' ? 'nexmol-backend.exe' : 'nexmol-backend';
+  return join(getPackagedBackendDir(), executable);
+}
+
+function looksLikeDependencyError(lines: string[]): boolean {
+  return lines.some((line) =>
+    /ModuleNotFoundError|No module named|ImportError|cannot import name/i.test(line)
+  );
+}
+
+function buildBackendRecoveryMessage(bridgeDir: string): string {
+  const requirementsPath = join(bridgeDir, 'requirements.txt');
+  const pythonCmd = process.platform === 'win32' ? 'python' : 'python3';
+  return [
+    'Recovery steps:',
+    `1. Install Python 3 if it is not already available.`,
+    `2. Install backend dependencies with:`,
+    `   ${pythonCmd} -m pip install -r "${requirementsPath}"`,
+  ].join('\n');
+}
+
+function buildPackagedBackendStartupErrorMessage(stderrLines: string[], exitSummary?: string): string {
+  const stderrPreview = stderrLines.slice(-8).join('\n').trim();
+  return [
+    'The bundled NexMol backend failed to start.',
+    '',
+    'Try reopening the app. If the problem persists, re-download this NexMol build.',
+    stderrPreview ? `\n\nBackend output:\n${stderrPreview}` : exitSummary ? `\n\n${exitSummary}` : '',
+  ].join('');
+}
+
+function buildBackendStartupErrorMessage(bridgeDir: string, stderrLines: string[], exitSummary?: string): string {
+  const stderrPreview = stderrLines.slice(-8).join('\n').trim();
+
+  if (looksLikeDependencyError(stderrLines)) {
+    return [
+      'Python started, but NexMol backend dependencies are missing for that Python installation.',
+      '',
+      buildBackendRecoveryMessage(bridgeDir),
+      stderrPreview ? `\n\nBackend output:\n${stderrPreview}` : '',
+    ].join('');
+  }
+
+  if (exitSummary) {
+    return [
+      `The NexMol backend exited before it reported a listening port.`,
+      '',
+      buildBackendRecoveryMessage(bridgeDir),
+      stderrPreview ? `\n\nBackend output:\n${stderrPreview}` : `\n\n${exitSummary}`,
+    ].join('');
+  }
+
+  return [
+    'The NexMol backend did not become ready in time.',
+    '',
+    buildBackendRecoveryMessage(bridgeDir),
+    stderrPreview ? `\n\nBackend output:\n${stderrPreview}` : '',
+  ].join('');
 }
 
 function spawnBackend(): Promise<number> {
   return new Promise((resolvePort, reject) => {
-    const bridgeDir = getBridgeDir();
+    const packaged = app.isPackaged;
+    const bridgeDir = packaged ? getPackagedBackendDir() : getBridgeDir();
     const mainPy = join(bridgeDir, 'main.py');
+    backendStartupError = null;
 
     // Try venv python first, then system python
     const isWin = process.platform === 'win32';
@@ -61,21 +124,31 @@ function spawnBackend(): Promise<number> {
       ? join(bridgeDir, '.venv', 'Scripts', 'python.exe')
       : join(bridgeDir, '.venv', 'bin', 'python');
 
-    let pythonCmd: string;
-    try {
-      const fs = require('node:fs');
-      if (fs.existsSync(venvPython)) {
-        pythonCmd = venvPython;
-      } else {
+    let launchCmd: string;
+    let launchArgs: string[];
+
+    if (packaged) {
+      launchCmd = getPackagedBackendExecutable();
+      launchArgs = [];
+    } else {
+      let pythonCmd: string;
+      try {
+        const fs = require('node:fs');
+        if (fs.existsSync(venvPython)) {
+          pythonCmd = venvPython;
+        } else {
+          pythonCmd = findPython();
+        }
+      } catch {
         pythonCmd = findPython();
       }
-    } catch {
-      pythonCmd = findPython();
+      launchCmd = pythonCmd;
+      launchArgs = [mainPy];
     }
 
-    console.log(`[NexMol] Starting backend: ${pythonCmd} ${mainPy}`);
+    console.log(`[NexMol] Starting backend: ${launchCmd}${launchArgs.length ? ` ${launchArgs.join(' ')}` : ''}`);
 
-    const proc = spawn(pythonCmd, [mainPy], {
+    const proc = spawn(launchCmd, launchArgs, {
       cwd: bridgeDir,
       stdio: ['ignore', 'pipe', 'pipe'],
       env: { ...process.env },
@@ -83,9 +156,16 @@ function spawnBackend(): Promise<number> {
 
     backendProcess = proc;
     let portFound = false;
+    let rejectCalled = false;
+    const stderrLines: string[] = [];
     const timeout = setTimeout(() => {
       if (!portFound) {
-        reject(new Error('Backend did not report port within 15 seconds'));
+        rejectCalled = true;
+        const message = packaged
+          ? buildPackagedBackendStartupErrorMessage(stderrLines)
+          : buildBackendStartupErrorMessage(bridgeDir, stderrLines);
+        backendStartupError = message;
+        reject(new Error(message));
       }
     }, 15000);
 
@@ -100,6 +180,7 @@ function spawnBackend(): Promise<number> {
           clearTimeout(timeout);
           const port = parseInt(match[1], 10);
           backendPort = port;
+          backendStartupError = null;
           console.log(`[NexMol] Backend ready on port ${port}`);
           resolvePort(port);
         }
@@ -109,6 +190,7 @@ function spawnBackend(): Promise<number> {
     if (proc.stderr) {
       const rl = createInterface({ input: proc.stderr });
       rl.on('line', (line: string) => {
+        stderrLines.push(line);
         console.error(`[Backend:err] ${line}`);
       });
     }
@@ -116,15 +198,46 @@ function spawnBackend(): Promise<number> {
     proc.on('error', (err) => {
       console.error('[NexMol] Backend spawn error:', err);
       clearTimeout(timeout);
-      if (!portFound) reject(err);
+      if (!portFound) {
+        rejectCalled = true;
+        const isMissingPython = !packaged && (err as NodeJS.ErrnoException)?.code === 'ENOENT';
+        const message = packaged
+          ? [
+              'The bundled NexMol backend executable could not be started.',
+              '',
+              'Try reopening the app. If the problem persists, re-download this NexMol build.',
+            ].join('\n')
+          : isMissingPython
+            ? [
+                'Python 3 was not found, so NexMol could not start the backend.',
+                '',
+                buildBackendRecoveryMessage(bridgeDir),
+              ].join('\n')
+            : err.message;
+        backendStartupError = message;
+        reject(new Error(message));
+      }
     });
 
     proc.on('exit', (code, signal) => {
       console.log(`[NexMol] Backend exited: code=${code}, signal=${signal}`);
       backendProcess = null;
       clearTimeout(timeout);
-      if (!portFound) {
-        reject(new Error(`Backend exited with code ${code} before reporting port`));
+      if (!portFound && !rejectCalled) {
+        const message = packaged
+          ? buildPackagedBackendStartupErrorMessage(
+              stderrLines,
+              `Bundled backend exited with code ${code} before reporting port${signal ? ` (signal ${signal})` : ''}.`
+            )
+          : buildBackendStartupErrorMessage(
+              bridgeDir,
+              stderrLines,
+              `Backend exited with code ${code} before reporting port${signal ? ` (signal ${signal})` : ''}.`
+            );
+        backendStartupError = message;
+        reject(
+          new Error(message)
+        );
       }
     });
   });
@@ -186,14 +299,18 @@ app.whenReady().then(async () => {
     await spawnBackend();
   } catch (err: any) {
     console.error('[NexMol] Failed to start backend:', err.message);
+    backendStartupError = err.message;
     dialog.showErrorBox(
       'NexMol Backend Error',
-      `Could not start the backend server.\n\n${err.message}\n\nPlease ensure Python 3.8+ is installed and the backend dependencies are set up.`
+      `Could not start the backend server.\n\n${err.message}`
     );
   }
 
   // IPC handlers
   ipcMain.handle('get-backend-port', () => backendPort);
+  ipcMain.handle('get-backend-startup-error', () => backendStartupError);
+  ipcMain.handle('is-packaged-app', () => app.isPackaged);
+  ipcMain.handle('get-app-version', () => app.getVersion());
 
   ipcMain.handle('show-save-dialog', async (_evt, opts) => {
     const win = BrowserWindow.getFocusedWindow() || mainWindow;
@@ -215,6 +332,7 @@ app.whenReady().then(async () => {
   ipcMain.handle('get-node-version', () => process.versions.node);
 
   ipcMain.handle('get-python-version', () => {
+    if (app.isPackaged) return 'bundled';
     try {
       const cmd = process.platform === 'win32' ? 'python --version' : 'python3 --version';
       const output = execSync(cmd, { encoding: 'utf-8', timeout: 5000 }).trim();
