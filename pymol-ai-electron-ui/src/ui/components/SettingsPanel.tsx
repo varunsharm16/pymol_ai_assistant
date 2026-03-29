@@ -128,10 +128,13 @@ const SettingsPanel: React.FC = () => {
           restricted permissions. It is never sent anywhere except OpenAI's API.
         </div>
 
-        {/* Version */}
-        <div className="pt-4 border-t border-neutral-700">
+        {/* Version / attribution */}
+        <div className="pt-4 border-t border-neutral-700 space-y-1">
           <div className="text-xs text-neutral-500">
             NexMol <span className="text-neutral-300">v{version}</span>
+          </div>
+          <div className="text-xs text-neutral-500">
+            Created by <span className="text-neutral-300">Varun Sharma</span>
           </div>
         </div>
       </div>

@@ -12,6 +12,8 @@ build/
 develop-eggs/
 dist/
 dist-electron/
+.tmp-tests/
+pymol-ai-electron-ui/release/
 downloads/
 eggs/
 .eggs/

@@ -13,7 +13,6 @@ import os
 import platform
 import socket
 import stat
-import sys
 import time
 from pathlib import Path
 
@@ -62,12 +61,6 @@ app.add_middleware(
 _IS_WINDOWS = platform.system() == "Windows"
 _CONFIG_DIR = Path.home() / ".nexmol"
 _CONFIG_PATH = _CONFIG_DIR / "config.json"
-_DEV_BACKEND_PORT_PATH = (
-    Path(__file__).resolve().parent.parent
-    / "pymol-ai-electron-ui"
-    / "public"
-    / "nexmol-backend-port.json"
-)
 DEFAULT_OPENAI_MODEL = "gpt-5.4-mini"
 
 RES_MAP = {
@@ -596,24 +589,9 @@ def _find_free_port() -> int:
         return s.getsockname()[1]
 
 
-def _publish_dev_backend_port(port: int) -> None:
-    """Best-effort publish of the backend port for browser-mode dev."""
-    if getattr(sys, "frozen", False):
-        return
-    try:
-        _DEV_BACKEND_PORT_PATH.parent.mkdir(parents=True, exist_ok=True)
-        _DEV_BACKEND_PORT_PATH.write_text(
-            json.dumps({"port": port}, indent=2),
-            encoding="utf-8",
-        )
-    except Exception as exc:
-        log.warning("Failed to publish browser dev backend port: %s", exc)
-
-
 if __name__ == "__main__":
     port = _find_free_port()
     # Handshake: Electron reads this line to discover our port
     print(f"NEXMOL_PORT={port}", flush=True)
-    _publish_dev_backend_port(port)
     log.info("NexMol backend starting on 127.0.0.1:%d", port)
     uvicorn.run(app, host="127.0.0.1", port=port, log_level="warning")

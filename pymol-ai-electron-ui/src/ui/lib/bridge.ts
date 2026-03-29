@@ -1,6 +1,5 @@
 let _baseUrl: string | null = null;
 const MAX_RETRIES = 5;
-const DEV_PORT_FILE = 'nexmol-backend-port.json';
 
 export type BridgeProgress = {
   phase: 'sending' | 'retrying' | 'waiting' | 'success' | 'error';
@@ -34,8 +33,6 @@ declare global {
       getBackendStartupError: () => Promise<string | null>;
       isPackagedApp: () => Promise<boolean>;
       getAppVersion: () => Promise<string>;
-      getNodeVersion: () => Promise<string>;
-      getPythonVersion: () => Promise<string>;
     };
   }
 }
@@ -43,26 +40,6 @@ declare global {
 // ---------------------------------------------------------------------------
 // Base URL discovery
 // ---------------------------------------------------------------------------
-
-async function getBrowserPublishedPort(): Promise<number | null> {
-  try {
-    const url = new URL(`./${DEV_PORT_FILE}`, window.location.href);
-    url.searchParams.set('ts', String(Date.now()));
-
-    const res = await fetch(url.toString(), {
-      method: 'GET',
-      cache: 'no-store',
-    });
-    if (!res.ok) return null;
-
-    const body = await res.json().catch(() => null) as { port?: unknown } | null;
-    const port = Number(body?.port);
-    if (!Number.isInteger(port) || port <= 0) return null;
-    return port;
-  } catch {
-    return null;
-  }
-}
 
 async function getBaseUrl(): Promise<string> {
   if (_baseUrl) return _baseUrl;
@@ -86,15 +63,9 @@ async function getBaseUrl(): Promise<string> {
     return _baseUrl;
   }
 
-  const browserPort = await getBrowserPublishedPort();
-  if (browserPort) {
-    _baseUrl = `http://127.0.0.1:${browserPort}`;
-    return _baseUrl;
-  }
-
-  // Final fallback: not in Electron, and no published port file was found.
+  // Final fallback: not in Electron, and no explicit port override was provided.
   console.warn(
-    '[NexMol] No Electron IPC or published backend port was found.\n' +
+    '[NexMol] No Electron IPC or explicit backend port was found.\n' +
     'If running in browser, start the backend manually on port 8000 or add ?port=XXXXX to the URL.'
   );
   _baseUrl = 'http://127.0.0.1:8000';

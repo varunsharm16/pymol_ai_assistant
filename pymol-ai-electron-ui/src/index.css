@@ -519,7 +519,7 @@
 .nexmol-viewer-empty-state-wordmark {
   font-family: 'Manrope', 'SF Pro Display', 'Segoe UI', sans-serif;
   font-size: clamp(56px, 8.1vw, 124px);
-  font-weight: 500;
+  font-weight: 400;
   letter-spacing: -0.025em;
   line-height: 0.92;
   text-align: center;

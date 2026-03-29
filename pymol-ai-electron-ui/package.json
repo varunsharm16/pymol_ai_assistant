@@ -1,6 +1,8 @@
 {
   "name": "pymol-ai-assistant-electron",
   "version": "0.2.1-alpha",
+  "description": "Desktop UI for NexMol molecular visualization and AI assistance.",
+  "author": "varunsharm16",
   "private": true,
   "type": "module",
   "main": "electron/main.cjs",
@@ -22,7 +24,6 @@
     "icon": "src/assets/nexmol-app-icon-square.png",
     "files": [
       "dist/**",
-      "!dist/nexmol-backend-port.json",
       "electron/**/*.cjs",
       "package.json"
     ],

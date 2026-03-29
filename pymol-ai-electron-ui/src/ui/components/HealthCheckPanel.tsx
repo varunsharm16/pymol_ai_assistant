@@ -1,38 +1,18 @@
 import React from 'react';
 import { HealthCheck } from '../store';
-import { checkHealth, validateApiKey, isPackagedApp } from '../lib/bridge';
+import { checkHealth, validateApiKey } from '../lib/bridge';
 import { CheckCircle, XCircle, Loader2, RefreshCw } from 'lucide-react';
 
-function makeChecks(packaged: boolean): HealthCheck[] {
-  const checks: HealthCheck[] = [
-    { label: 'Backend server reachable', status: 'idle', message: '', fix: packaged ? 'The NexMol backend should start automatically. Try reopening the app.' : 'The NexMol backend should start automatically. Try restarting the app.' },
+function makeChecks(): HealthCheck[] {
+  return [
+    { label: 'Backend server reachable', status: 'idle', message: '', fix: 'The NexMol backend should start automatically. Try reopening the app.' },
     { label: 'API key valid', status: 'idle', message: '', fix: 'Go to Settings and enter a valid OpenAI API key.' },
-    { label: 'Node.js ≥ 18', status: 'idle', message: '', fix: 'Install Node.js 18+ from https://nodejs.org' },
   ];
-  if (!packaged) {
-    checks.push({ label: 'Python ≥ 3.8', status: 'idle', message: '', fix: 'Install Python 3.8+ from https://python.org' });
-  }
-  return checks;
-}
-
-function semverGte(version: string, minMajor: number, minMinor: number = 0): boolean {
-  const parts = version.split('.').map(Number);
-  if (parts[0] > minMajor) return true;
-  if (parts[0] === minMajor && (parts[1] ?? 0) >= minMinor) return true;
-  return false;
 }
 
 const HealthCheckPanel: React.FC = () => {
-  const [packaged, setPackaged] = React.useState(false);
-  const [checks, setChecks] = React.useState<HealthCheck[]>(makeChecks(false));
+  const [checks, setChecks] = React.useState<HealthCheck[]>(makeChecks());
   const [running, setRunning] = React.useState(false);
-
-  React.useEffect(() => {
-    isPackagedApp().then((value) => {
-      setPackaged(value);
-      setChecks(makeChecks(value));
-    });
-  }, []);
 
   const update = (idx: number, patch: Partial<HealthCheck>) => {
     setChecks((prev) => prev.map((c, i) => (i === idx ? { ...c, ...patch } : c)));
@@ -40,7 +20,7 @@ const HealthCheckPanel: React.FC = () => {
 
   const runChecks = async () => {
     setRunning(true);
-    const fresh = makeChecks(packaged);
+    const fresh = makeChecks();
     setChecks(fresh.map((c) => ({ ...c, status: 'pending' })));
 
     // 1) Backend
@@ -59,34 +39,6 @@ const HealthCheckPanel: React.FC = () => {
       status: keyRes.ok ? 'pass' : 'fail',
       message: keyRes.ok ? 'Valid' : keyRes.error || 'Not configured',
     });
-
-    // 3) Node.js
-    update(2, { status: 'pending', message: 'Checking…' });
-    try {
-      const nodeVer = await window.api?.getNodeVersion?.() || '';
-      const ok = nodeVer && semverGte(nodeVer, 18);
-      update(2, {
-        status: ok ? 'pass' : 'fail',
-        message: nodeVer ? `v${nodeVer}` : 'Not found',
-      });
-    } catch {
-      update(2, { status: 'fail', message: 'Check failed' });
-    }
-
-    if (!packaged) {
-      // 4) Python
-      update(3, { status: 'pending', message: 'Checking…' });
-      try {
-        const pyVer = await window.api?.getPythonVersion?.() || '';
-        const ok = pyVer && pyVer !== 'not found' && semverGte(pyVer, 3, 8);
-        update(3, {
-          status: ok ? 'pass' : 'fail',
-          message: pyVer && pyVer !== 'not found' ? `v${pyVer}` : 'Not found',
-        });
-      } catch {
-        update(3, { status: 'fail', message: 'Check failed' });
-      }
-    }
 
     setRunning(false);
   };

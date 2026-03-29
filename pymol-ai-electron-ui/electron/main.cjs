@@ -296,17 +296,6 @@ ${err.message}`
     await (0, import_promises.writeFile)(opts.path, Buffer.from(opts.dataBase64, "base64"));
     return { ok: true };
   });
-  import_electron.ipcMain.handle("get-node-version", () => process.versions.node);
-  import_electron.ipcMain.handle("get-python-version", () => {
-    if (import_electron.app.isPackaged) return "bundled";
-    try {
-      const cmd = process.platform === "win32" ? "python --version" : "python3 --version";
-      const output = (0, import_node_child_process.execSync)(cmd, { encoding: "utf-8", timeout: 5e3 }).trim();
-      return output.replace(/^Python\s*/i, "");
-    } catch {
-      return "not found";
-    }
-  });
   createWindow();
   import_electron.app.on("activate", () => {
     if (import_electron.BrowserWindow.getAllWindows().length === 0) createWindow();

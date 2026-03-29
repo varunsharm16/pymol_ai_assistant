@@ -11,9 +11,6 @@ var api = Object.freeze({
   getBackendPort: () => import_electron.ipcRenderer.invoke("get-backend-port"),
   getBackendStartupError: () => import_electron.ipcRenderer.invoke("get-backend-startup-error"),
   isPackagedApp: () => import_electron.ipcRenderer.invoke("is-packaged-app"),
-  getAppVersion: () => import_electron.ipcRenderer.invoke("get-app-version"),
-  // Version checks for health panel
-  getNodeVersion: () => import_electron.ipcRenderer.invoke("get-node-version"),
-  getPythonVersion: () => import_electron.ipcRenderer.invoke("get-python-version")
+  getAppVersion: () => import_electron.ipcRenderer.invoke("get-app-version")
 });
 import_electron.contextBridge.exposeInMainWorld("api", api);

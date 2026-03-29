@@ -2,6 +2,25 @@
 
 NexMol is the standalone pivot of the former PyMOL AI Assistant project. The current build runs as an Electron desktop app with a React + Mol* viewer and a FastAPI backend for AI, config, and structure-data services.
 
+## Download
+
+End users should download packaged builds from [GitHub Releases](https://github.com/varunsharm16/pymol_ai_assistant/releases).
+
+Packaged alpha builds bundle the NexMol backend. End users should not need to install Python, Node.js, or npm separately.
+
+## Install on macOS
+
+1. Download the latest macOS release asset from [GitHub Releases](https://github.com/varunsharm16/pymol_ai_assistant/releases).
+2. Open the downloaded DMG.
+3. Drag `NexMol.app` into `Applications`.
+4. Launch the app from `Applications`.
+5. Because alpha builds are currently unsigned, macOS may block the first launch. If that happens, right-click `NexMol.app` and choose `Open`.
+6. Open Settings and enter your OpenAI API key.
+
+## Windows
+
+Windows packaging is still in progress. Until a Windows release asset is published, Windows users should build from source.
+
 ## Current Status
 
 This branch is a staged weekend stabilization build.
@@ -21,7 +40,6 @@ Staged but not fully implemented yet:
 
 - alignment
 - polar contacts
-- sequence view
 
 These staged features are intentionally preserved in the parser and command model. They may be accepted by the app and surfaced as not yet implemented rather than removed.
 
@@ -35,7 +53,9 @@ Electron (React + Mol*)  <--HTTP-->  FastAPI backend
 - Backend handles LLM prompting, config, validation, and structure-data access.
 - Electron starts the backend on an ephemeral localhost port and passes that port to the frontend through IPC.
 
-## Requirements
+## Build from Source
+
+### Requirements
 
 - Python 3.8+
 - Node.js 18+
@@ -58,7 +78,7 @@ node --version
 npm --version
 ```
 
-## Development Setup
+### Development Setup
 
 Backend:
 
@@ -76,7 +96,7 @@ cd pymol-ai-electron-ui
 npm install
 ```
 
-## Running NexMol
+### Running NexMol
 
 Desktop app:
 
@@ -109,13 +129,6 @@ Example:
 ```text
 http://localhost:5173/?port=51234
 ```
-
-## How to Install Alpha Builds
-
-- This alpha build is currently unsigned.
-- On macOS, you may need to right-click the app and choose `Open`.
-- On Windows, click `More info` and then `Run anyway` if SmartScreen appears.
-- Packaged alpha builds bundle the NexMol backend. End users should not need to install Python separately.
 
 ## Features
 
@@ -201,4 +214,5 @@ npm run build:electron
 ## Notes
 
 - This repository still contains legacy PyMOL-era code under `plugin/` while the standalone transition is in progress.
+- Legacy bootstrap and PyMOL plugin scripts remain in the repository, but GitHub Releases are the primary install path for standalone desktop users.
 - Feature removal is not the default policy on this branch. Deferred capabilities stay staged until there is evidence they should be cut.

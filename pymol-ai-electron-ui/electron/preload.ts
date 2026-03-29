@@ -23,11 +23,6 @@ const api = Object.freeze({
   getBackendStartupError: () => ipcRenderer.invoke('get-backend-startup-error') as Promise<string | null>,
   isPackagedApp: () => ipcRenderer.invoke('is-packaged-app') as Promise<boolean>,
   getAppVersion: () => ipcRenderer.invoke('get-app-version') as Promise<string>,
-
-  // Version checks for health panel
-  getNodeVersion: () => ipcRenderer.invoke('get-node-version') as Promise<string>,
-  getPythonVersion: () =>
-    ipcRenderer.invoke('get-python-version') as Promise<string>,
 });
 
 contextBridge.exposeInMainWorld('api', api);

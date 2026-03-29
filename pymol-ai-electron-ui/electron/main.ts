@@ -344,19 +344,6 @@ app.whenReady().then(async () => {
     return { ok: true };
   });
 
-  ipcMain.handle('get-node-version', () => process.versions.node);
-
-  ipcMain.handle('get-python-version', () => {
-    if (app.isPackaged) return 'bundled';
-    try {
-      const cmd = process.platform === 'win32' ? 'python --version' : 'python3 --version';
-      const output = execSync(cmd, { encoding: 'utf-8', timeout: 5000 }).trim();
-      return output.replace(/^Python\s*/i, '');
-    } catch {
-      return 'not found';
-    }
-  });
-
   createWindow();
 
   app.on('activate', () => {
