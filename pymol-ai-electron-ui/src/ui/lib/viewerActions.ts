@@ -1,5 +1,5 @@
 import type { MoleculeViewerHandle, SelectionSpec } from '../components/MoleculeViewer';
-import { useStore, type NormalizedSpec, type ViewerState } from '../store';
+import { DEFAULT_SEQUENCE_PANEL_WIDTH, useStore, type NormalizedSpec, type ViewerState } from '../store';
 
 const DEFERRED_MESSAGES: Record<string, string> = {
   show_contacts: 'Show contacts is staged for NexMol but not implemented yet.',
@@ -417,6 +417,7 @@ export async function restoreViewerState(
   const store = useStore.getState();
   const applySequenceUi = (sequenceUi?: ViewerState['sequenceUi']) => {
     store.setSequenceUiMode(sequenceUi?.mode || 'single');
+    store.setSequenceUiWidth(sequenceUi?.width || DEFAULT_SEQUENCE_PANEL_WIDTH);
     store.setSequenceUiOpen(sequenceUi?.open || false);
   };
   if (!viewerState) {

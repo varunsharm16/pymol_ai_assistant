@@ -56,6 +56,7 @@ export type ViewerSelectionSpec =
   | { kind: 'object'; object: string };
 
 export type SequenceUiMode = 'single' | 'polymers' | 'all';
+export const DEFAULT_SEQUENCE_PANEL_WIDTH = 420;
 
 export type ProjectStructure = {
   data: string;
@@ -72,7 +73,7 @@ export type ViewerState = {
   backgroundColor?: string;
   cameraSnapshot?: any;
   operations: NormalizedSpec[];
-  sequenceUi?: { open: boolean; mode: SequenceUiMode };
+  sequenceUi?: { open: boolean; mode: SequenceUiMode; width: number };
 };
 
 type Right =
@@ -98,7 +99,7 @@ type State = {
   currentViewerSelection: ViewerSelectionSpec | null;
   activeViewerSelections: ViewerSelectionSpec[];
   selectedResiduePair: ViewerSelectionSpec[];
-  sequenceUi: { open: boolean; mode: SequenceUiMode };
+  sequenceUi: { open: boolean; mode: SequenceUiMode; width: number };
   viewerReady: boolean;
   viewerExpanded: boolean;
 
@@ -130,6 +131,7 @@ type State = {
   setSequenceUiOpen: (open: boolean) => void;
   toggleSequenceUi: () => void;
   setSequenceUiMode: (mode: SequenceUiMode) => void;
+  setSequenceUiWidth: (width: number) => void;
   setViewerReady: (ready: boolean) => void;
   setViewerExpanded: (expanded: boolean) => void;
   setPendingRename: (id: string | null) => void;
@@ -180,7 +182,7 @@ function createWorkspaceState(name = 'New Project') {
     projectMolecules: { [project.id]: {} as MoleculeInfo },
     projectStructures: { [project.id]: undefined as ProjectStructure | undefined },
     projectViewerStates: {
-      [project.id]: { operations: [], sequenceUi: { open: false, mode: 'single' } } as ViewerState,
+      [project.id]: { operations: [], sequenceUi: { open: false, mode: 'single', width: DEFAULT_SEQUENCE_PANEL_WIDTH } } as ViewerState,
     },
   };
 }
@@ -200,7 +202,7 @@ export const useStore = create<State>((set, get) => ({
   currentViewerSelection: null,
   activeViewerSelections: [],
   selectedResiduePair: [],
-  sequenceUi: { open: false, mode: 'single' },
+  sequenceUi: { open: false, mode: 'single', width: DEFAULT_SEQUENCE_PANEL_WIDTH },
   viewerReady: false,
   viewerExpanded: false,
 
@@ -250,7 +252,7 @@ export const useStore = create<State>((set, get) => ({
       projectStructures: { ...s.projectStructures, [p.id]: undefined },
       projectViewerStates: {
         ...s.projectViewerStates,
-        [p.id]: { operations: [], sequenceUi: { open: false, mode: 'single' } },
+        [p.id]: { operations: [], sequenceUi: { open: false, mode: 'single', width: DEFAULT_SEQUENCE_PANEL_WIDTH } },
       },
       pendingRenameId: p.id,
     }));
@@ -277,7 +279,7 @@ export const useStore = create<State>((set, get) => ({
         notes[fallbackProject.id] = '';
         projectMolecules[fallbackProject.id] = {};
         projectStructures[fallbackProject.id] = undefined;
-        projectViewerStates[fallbackProject.id] = { operations: [], sequenceUi: { open: false, mode: 'single' } };
+        projectViewerStates[fallbackProject.id] = { operations: [], sequenceUi: { open: false, mode: 'single', width: DEFAULT_SEQUENCE_PANEL_WIDTH } };
       }
 
       return {
@@ -368,6 +370,20 @@ export const useStore = create<State>((set, get) => ({
         },
       };
     }),
+  setSequenceUiWidth: (width) =>
+    set((s) => {
+      const currentViewerState = s.projectViewerStates[s.currentProjectId] || { operations: [] };
+      return {
+        sequenceUi: { ...s.sequenceUi, width },
+        projectViewerStates: {
+          ...s.projectViewerStates,
+          [s.currentProjectId]: {
+            ...currentViewerState,
+            sequenceUi: { ...(currentViewerState.sequenceUi || s.sequenceUi), width },
+          },
+        },
+      };
+    }),
   setViewerReady: (ready) => set({ viewerReady: ready }),
   setViewerExpanded: (expanded) => set({ viewerExpanded: expanded }),
 
@@ -427,7 +443,7 @@ export const useStore = create<State>((set, get) => ({
       projectStructures: { ...s.projectStructures, [projectId]: structure },
       projectViewerStates: {
         ...s.projectViewerStates,
-        [projectId]: viewerState || { operations: [], sequenceUi: { open: false, mode: 'single' } },
+        [projectId]: viewerState || { operations: [], sequenceUi: { open: false, mode: 'single', width: DEFAULT_SEQUENCE_PANEL_WIDTH } },
       },
     }));
     return projectId;

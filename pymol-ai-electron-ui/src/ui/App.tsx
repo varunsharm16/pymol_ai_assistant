@@ -131,9 +131,12 @@ const App: React.FC = () => {
   const addLogToProject = useStore((s) => s.addLogToProject);
   const viewerReady = useStore((s) => s.viewerReady);
   const viewerExpanded = useStore((s) => s.viewerExpanded);
+  const sequenceOpen = useStore((s) => s.sequenceUi.open);
+  const setSequenceUiOpen = useStore((s) => s.setSequenceUiOpen);
   const [showOnboarding, setShowOnboarding] = React.useState(false);
   const [bottomTab, setBottomTab] = React.useState<BottomTab>('viewer');
   const onboardingKey = 'nexmol_onboarding_complete';
+  const restoreSequenceAfterExpandedRef = React.useRef(false);
 
   const viewerRef = React.useRef<MoleculeViewerHandle>(null);
   // Expose globally so PromptInput and other components can access it
@@ -194,6 +197,21 @@ const App: React.FC = () => {
     };
   }, [addLogToProject, currentProjectId, currentProjectStructure, viewerReady]);
 
+  React.useEffect(() => {
+    if (viewerExpanded) {
+      if (sequenceOpen) {
+        restoreSequenceAfterExpandedRef.current = true;
+        setSequenceUiOpen(false);
+      }
+      return;
+    }
+
+    if (restoreSequenceAfterExpandedRef.current) {
+      restoreSequenceAfterExpandedRef.current = false;
+      setSequenceUiOpen(true);
+    }
+  }, [sequenceOpen, setSequenceUiOpen, viewerExpanded]);
+
   // Check API key on mount
   React.useEffect(() => {
     checkApiKey().then((configured) => {
@@ -219,7 +237,7 @@ const App: React.FC = () => {
       className="h-screen w-screen flex flex-col"
       style={{ fontFamily: 'var(--font-sans, Arial, Verdana, system-ui)' }}
     >
-      <TopBar />
+      {!viewerExpanded && <TopBar />}
       {!viewerExpanded && <Toolbar />}
       <div className="flex-1 flex overflow-hidden border-t border-neutral-800">
         {/* Main content: viewer + chat */}

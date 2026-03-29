@@ -12,13 +12,13 @@ function resetUiState() {
     currentViewerSelection: residueB as any,
     activeViewerSelections: [residueA, residueB] as any,
     selectedResiduePair: [residueA, residueB] as any,
-    sequenceUi: { open: false, mode: 'single' },
+    sequenceUi: { open: false, mode: 'single', width: 420 },
   });
 }
 
 test('persisted state materializes active selection and sequence ui', () => {
   resetUiState();
-  useStore.setState({ sequenceUi: { open: true, mode: 'polymers' } });
+  useStore.setState({ sequenceUi: { open: true, mode: 'polymers', width: 320 } });
 
   const state = updateViewerStateAfterCommand(
     undefined,
@@ -26,7 +26,7 @@ test('persisted state materializes active selection and sequence ui', () => {
     { backgroundColor: '#000000' }
   );
 
-  assert.deepEqual(state.sequenceUi, { open: true, mode: 'polymers' });
+  assert.deepEqual(state.sequenceUi, { open: true, mode: 'polymers', width: 320 });
   assert.equal(state.operations[0]?.name, 'color_selection');
   assert.deepEqual(state.operations[0]?.arguments?.target, {
     kind: 'selection_set',
@@ -132,7 +132,7 @@ test('restore viewer state replays operations in stage order and applies sequenc
   const errors = await restoreViewerState(
     {
       backgroundColor: '#ffffff',
-      sequenceUi: { open: true, mode: 'polymers' },
+      sequenceUi: { open: true, mode: 'polymers', width: 300 },
       operations: [
         { name: 'measure_distance', arguments: { source: residueA, target: residueB } },
         { name: 'label_selection', arguments: { target: residueA, mode: 'residue' } },
@@ -146,5 +146,5 @@ test('restore viewer state replays operations in stage order and applies sequenc
 
   assert.deepEqual(errors, []);
   assert.deepEqual(calls, ['background', 'show', 'color', 'transparency', 'label', 'distance']);
-  assert.deepEqual(useStore.getState().sequenceUi, { open: true, mode: 'polymers' });
+  assert.deepEqual(useStore.getState().sequenceUi, { open: true, mode: 'polymers', width: 300 });
 });

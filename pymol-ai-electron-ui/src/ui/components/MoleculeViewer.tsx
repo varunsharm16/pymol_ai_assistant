@@ -1,4 +1,4 @@
-import React, { useRef, useEffect, useImperativeHandle, forwardRef, useCallback } from 'react';
+import React, { useRef, useEffect, useImperativeHandle, forwardRef, useCallback, useState } from 'react';
 import { createPluginUI } from 'molstar/lib/mol-plugin-ui';
 import type { PluginUIContext } from 'molstar/lib/mol-plugin-ui/context';
 import { renderReact18 } from 'molstar/lib/mol-plugin-ui/react18';
@@ -19,7 +19,7 @@ import {
 import { StructureSelectionQueries } from 'molstar/lib/mol-plugin-state/helpers/structure-selection-query';
 import { setStructureOverpaint, clearStructureOverpaint } from 'molstar/lib/mol-plugin-state/helpers/structure-overpaint';
 import { setStructureTransparency, clearStructureTransparency } from 'molstar/lib/mol-plugin-state/helpers/structure-transparency';
-import { useStore, type SequenceUiMode } from '../store';
+import { DEFAULT_SEQUENCE_PANEL_WIDTH, useStore, type SequenceUiMode } from '../store';
 
 const CHAIN_COLORS = [
   '#1f77b4', '#ff7f0e', '#2ca02c', '#d62728', '#9467bd',
@@ -75,6 +75,7 @@ const METAL_ELEMENTS = [
 ];
 
 const DEFAULT_BACKGROUND = '#1a1a1a';
+const MIN_SEQUENCE_PANEL_WIDTH = DEFAULT_SEQUENCE_PANEL_WIDTH / 2;
 
 export type SelectionSpec = {
   kind: string;
@@ -168,18 +169,75 @@ const SequencePanel: React.FC<{
   plugin: PluginUIContext;
   mode: SequenceUiMode;
   open: boolean;
-}> = ({ plugin, mode, open }) => (
-  <div
-    className={`nexmol-sequence-panel relative h-full shrink-0 overflow-hidden bg-[#161616] transition-[width,flex-basis,opacity,border-color] duration-300 ease-in-out ${
-      open ? 'border-l border-neutral-800 opacity-100' : 'border-l border-transparent opacity-0 pointer-events-none'
-    }`}
-    style={{ width: open ? 420 : 0, flexBasis: open ? 420 : 0 }}
-  >
-    <PluginContextContainer plugin={plugin}>
-      <SequenceView key={mode} defaultMode={mode} />
-    </PluginContextContainer>
-  </div>
-);
+  width: number;
+  onWidthChange: (width: number) => void;
+}> = ({ plugin, mode, open, width, onWidthChange }) => {
+  const [dragging, setDragging] = useState(false);
+  const panelRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!dragging) return;
+
+    const handlePointerMove = (event: PointerEvent) => {
+      const rightEdge = panelRef.current?.getBoundingClientRect().right ?? window.innerWidth ?? DEFAULT_SEQUENCE_PANEL_WIDTH;
+      const nextWidth = Math.min(
+        DEFAULT_SEQUENCE_PANEL_WIDTH,
+        Math.max(MIN_SEQUENCE_PANEL_WIDTH, rightEdge - event.clientX)
+      );
+      onWidthChange(Math.round(nextWidth));
+    };
+
+    const handlePointerUp = () => {
+      setDragging(false);
+      document.body.style.userSelect = '';
+      document.body.style.cursor = '';
+    };
+
+    window.addEventListener('pointermove', handlePointerMove);
+    window.addEventListener('pointerup', handlePointerUp);
+    document.body.style.userSelect = 'none';
+    document.body.style.cursor = 'col-resize';
+
+    return () => {
+      window.removeEventListener('pointermove', handlePointerMove);
+      window.removeEventListener('pointerup', handlePointerUp);
+      document.body.style.userSelect = '';
+      document.body.style.cursor = '';
+    };
+  }, [dragging, onWidthChange]);
+
+  return (
+    <div
+      ref={panelRef}
+      className={`nexmol-sequence-panel relative h-full shrink-0 overflow-hidden bg-[#161616] transition-[width,flex-basis,opacity,border-color] duration-300 ease-in-out ${
+        open ? 'border-l border-neutral-800 opacity-100' : 'border-l border-transparent opacity-0 pointer-events-none'
+      } ${dragging ? 'select-none' : ''}`}
+      style={{ width: open ? width : 0, flexBasis: open ? width : 0 }}
+    >
+      <button
+        type="button"
+        aria-label="Resize sequence panel"
+        className={`group absolute inset-y-0 left-0 z-20 w-2 -translate-x-1/2 cursor-col-resize bg-transparent ${
+          open ? 'pointer-events-auto' : 'pointer-events-none'
+        }`}
+        onPointerDown={(event) => {
+          if (!open) return;
+          event.preventDefault();
+          setDragging(true);
+        }}
+      >
+        <span
+          className={`pointer-events-none absolute inset-y-0 left-1/2 -translate-x-1/2 rounded-full transition-colors ${
+            dragging ? 'w-[3px] bg-brand/80' : 'w-[3px] bg-transparent group-hover:bg-brand/55'
+          }`}
+        />
+      </button>
+      <PluginContextContainer plugin={plugin}>
+        <SequenceView key={mode} defaultMode={mode} />
+      </PluginContextContainer>
+    </div>
+  );
+};
 
 function describeSelection(spec: SelectionSpec): string {
   const kind = spec.kind;
@@ -373,6 +431,8 @@ const MoleculeViewer = forwardRef<MoleculeViewerHandle, { className?: string }>(
     const viewerReady = useStore((s) => s.viewerReady);
     const sequenceUiOpen = useStore((s) => s.sequenceUi.open);
     const sequenceUiMode = useStore((s) => s.sequenceUi.mode);
+    const sequenceUiWidth = useStore((s) => s.sequenceUi.width);
+    const setSequenceUiWidth = useStore((s) => s.setSequenceUiWidth);
     const setCurrentViewerSelection = useStore((s) => s.setCurrentViewerSelection);
     const setActiveViewerSelections = useStore((s) => s.setActiveViewerSelections);
     const setSelectedResiduePair = useStore((s) => s.setSelectedResiduePair);
@@ -456,6 +516,10 @@ const MoleculeViewer = forwardRef<MoleculeViewerHandle, { className?: string }>(
       labelOpsRef.current = [];
       clearedLabelKeysRef.current = new Set();
       distanceOpsRef.current = [];
+    }, []);
+
+    const applyViewerBackgroundCss = useCallback((color?: string) => {
+      containerRef.current?.style.setProperty('--nexmol-viewer-bg', color || DEFAULT_BACKGROUND);
     }, []);
 
     const refitStructureIntoViewport = useCallback(() => {
@@ -1246,6 +1310,7 @@ const MoleculeViewer = forwardRef<MoleculeViewerHandle, { className?: string }>(
             }) as any,
           });
           backgroundColorRef.current = DEFAULT_BACKGROUND;
+          applyViewerBackgroundCss(DEFAULT_BACKGROUND);
           setViewerReady(true);
         } catch (error) {
           pluginRef.current = null;
@@ -1263,7 +1328,7 @@ const MoleculeViewer = forwardRef<MoleculeViewerHandle, { className?: string }>(
         pluginRef.current?.dispose();
         pluginRef.current = null;
       };
-    }, [clearSelectionState, extractSelectionSpec, isSingleResidueLoci, reconcileSelectionState, setViewerExpanded, setViewerReady, syncSelectionState]);
+    }, [applyViewerBackgroundCss, clearSelectionState, extractSelectionSpec, isSingleResidueLoci, reconcileSelectionState, setViewerExpanded, setViewerReady, syncSelectionState]);
 
     useEffect(() => {
       const host = containerRef.current;
@@ -1606,6 +1671,7 @@ const MoleculeViewer = forwardRef<MoleculeViewerHandle, { className?: string }>(
           }) as any,
           });
           backgroundColorRef.current = color;
+          applyViewerBackgroundCss(color);
         });
       },
 
@@ -1684,6 +1750,7 @@ const MoleculeViewer = forwardRef<MoleculeViewerHandle, { className?: string }>(
               }) as any,
             });
             backgroundColorRef.current = snapshot.backgroundColor;
+            applyViewerBackgroundCss(snapshot.backgroundColor);
           }
         });
       },
@@ -1712,6 +1779,7 @@ const MoleculeViewer = forwardRef<MoleculeViewerHandle, { className?: string }>(
       resetSceneOps,
       refitStructureIntoViewport,
       syncSelectionState,
+      applyViewerBackgroundCss,
     ]);
 
     return (
@@ -1719,10 +1787,16 @@ const MoleculeViewer = forwardRef<MoleculeViewerHandle, { className?: string }>(
         <div
           ref={containerRef}
           className="relative min-w-0 flex-[1_1_0%] overflow-hidden"
-          style={{ background: '#111111' }}
+          style={{ background: 'var(--nexmol-viewer-bg, #111111)' }}
         />
         {pluginRef.current && (
-          <SequencePanel plugin={pluginRef.current} mode={sequenceUiMode} open={sequenceUiOpen} />
+          <SequencePanel
+            plugin={pluginRef.current}
+            mode={sequenceUiMode}
+            open={sequenceUiOpen}
+            width={sequenceUiWidth}
+            onWidthChange={setSequenceUiWidth}
+          />
         )}
       </div>
     );
