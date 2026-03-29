@@ -2,6 +2,14 @@
 @tailwind components;
 @tailwind utilities;
 
+@font-face {
+  font-family: 'Manrope';
+  src: url('./assets/fonts/Manrope[wght].ttf') format('truetype-variations');
+  font-weight: 200 400;
+  font-style: normal;
+  font-display: swap;
+}
+
 :root {
   color-scheme: dark;
 }
@@ -293,7 +301,7 @@
   margin: 0 !important;
 }
 
-.msp-hover-box-body .msp-flex-row + .msp-flex-row {
+.msp-hover-box-body .msp-flex-row+.msp-flex-row {
   margin-top: 1px !important;
 }
 
@@ -332,8 +340,8 @@
 }
 
 .msp-viewport-top-left-controls .msp-animation-viewport-controls,
-.msp-viewport-top-left-controls .msp-animation-viewport-controls > div:first-child,
-.msp-viewport-top-left-controls .msp-animation-viewport-controls > div:first-child > button,
+.msp-viewport-top-left-controls .msp-animation-viewport-controls>div:first-child,
+.msp-viewport-top-left-controls .msp-animation-viewport-controls>div:first-child>button,
 .msp-viewport-top-left-controls .msp-animation-viewport-controls .msp-animation-viewport-controls-select {
   pointer-events: auto;
 }
@@ -448,4 +456,89 @@
 .msp-selection-viewport-controls>.msp-flex-row select.msp-form-control option {
   background: #111111;
   color: #f5f5f5;
+}
+
+.nexmol-viewer-empty-state {
+  position: absolute;
+  inset: 0;
+  z-index: 12;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  pointer-events: none;
+  opacity: 1;
+  transition: opacity 180ms ease;
+}
+
+.nexmol-viewer-empty-state.is-hidden {
+  opacity: 0;
+}
+
+.nexmol-viewer-empty-state-brand {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: clamp(8px, 1.2vw, 14px);
+  padding: 0 32px;
+  opacity: 0.92;
+  transform: translateY(-1.5%);
+  filter: drop-shadow(0 18px 40px rgba(0, 0, 0, 0.28));
+}
+
+.nexmol-viewer-empty-state-mark {
+  --nexmol-viewer-brand-gold: #b8945f;
+  width: clamp(134px, 20vw, 272px);
+  aspect-ratio: 1 / 1;
+  flex: 0 0 auto;
+  position: relative;
+}
+
+.nexmol-viewer-empty-state-mark-layer {
+  position: absolute;
+  inset: 0;
+  background: var(--nexmol-viewer-brand-gold);
+  -webkit-mask-image: var(--nexmol-mark-mask);
+  -webkit-mask-position: center;
+  -webkit-mask-repeat: no-repeat;
+  -webkit-mask-size: contain;
+  mask-image: var(--nexmol-mark-mask);
+  mask-position: center;
+  mask-repeat: no-repeat;
+  mask-size: contain;
+}
+
+.nexmol-viewer-empty-state-mark-under {
+  transform: scale(1.032);
+  opacity: 0.96;
+}
+
+.nexmol-viewer-empty-state-mark-core {
+  opacity: 1;
+}
+
+.nexmol-viewer-empty-state-wordmark {
+  font-family: 'Manrope', 'SF Pro Display', 'Segoe UI', sans-serif;
+  font-size: clamp(56px, 8.1vw, 124px);
+  font-weight: 500;
+  letter-spacing: -0.025em;
+  line-height: 0.92;
+  text-align: center;
+  transform: translateY(-4px);
+  color: #b8945f;
+  text-rendering: geometricPrecision;
+}
+
+@media (max-width: 900px) {
+  .nexmol-viewer-empty-state-brand {
+    gap: 8px;
+    padding: 0 20px;
+  }
+
+  .nexmol-viewer-empty-state-mark {
+    width: clamp(108px, 18vw, 176px);
+  }
+
+  .nexmol-viewer-empty-state-wordmark {
+    font-size: clamp(42px, 7vw, 82px);
+  }
 }

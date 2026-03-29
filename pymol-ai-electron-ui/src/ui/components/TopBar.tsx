@@ -7,10 +7,9 @@ const TopBar: React.FC = () => {
   );
 
   return (
-    <div className="app-drag px-3 pt-6 select-none">
+    <div className="app-drag relative px-3 pt-6 select-none">
       {/* Title row */}
       <div className="flex items-center">
-        <div className="text-xs font-bold uppercase tracking-widest text-brand mr-3 app-no-drag">NexMol</div>
         <div className="text-xl font-semibold tracking-tight truncate">
           {project?.name ?? 'New Project'}
         </div>

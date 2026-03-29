@@ -10,15 +10,24 @@ let backendProcess: ChildProcess | null = null;
 let backendPort: number | null = null;
 let backendStartupError: string | null = null;
 
+function getLiveMainWindow(): BrowserWindow | null {
+  if (!mainWindow || mainWindow.isDestroyed()) {
+    mainWindow = null;
+    return null;
+  }
+  return mainWindow;
+}
+
 const gotLock = app.requestSingleInstanceLock();
 if (!gotLock) {
   app.quit();
   process.exit(0);
 }
 app.on('second-instance', () => {
-  if (mainWindow) {
-    if (mainWindow.isMinimized()) mainWindow.restore();
-    mainWindow.focus();
+  const win = getLiveMainWindow();
+  if (win) {
+    if (win.isMinimized()) win.restore();
+    win.focus();
   }
 });
 
@@ -285,6 +294,12 @@ function createWindow() {
   } else {
     mainWindow.loadFile(join(__dirname, '../dist/index.html'));
   }
+
+  mainWindow.on('closed', () => {
+    if (mainWindow?.isDestroyed()) {
+      mainWindow = null;
+    }
+  });
 }
 
 // ---------------------------------------------------------------------------
@@ -313,13 +328,13 @@ app.whenReady().then(async () => {
   ipcMain.handle('get-app-version', () => app.getVersion());
 
   ipcMain.handle('show-save-dialog', async (_evt, opts) => {
-    const win = BrowserWindow.getFocusedWindow() || mainWindow;
+    const win = BrowserWindow.getFocusedWindow() || getLiveMainWindow();
     if (win) return dialog.showSaveDialog(win, opts);
     return dialog.showSaveDialog(opts);
   });
 
   ipcMain.handle('show-open-dialog', async (_evt, opts) => {
-    const win = BrowserWindow.getFocusedWindow() || mainWindow;
+    const win = BrowserWindow.getFocusedWindow() || getLiveMainWindow();
     if (win) return dialog.showOpenDialog(win, opts);
     return dialog.showOpenDialog(opts);
   });

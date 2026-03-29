@@ -20,6 +20,7 @@ import { StructureSelectionQueries } from 'molstar/lib/mol-plugin-state/helpers/
 import { setStructureOverpaint, clearStructureOverpaint } from 'molstar/lib/mol-plugin-state/helpers/structure-overpaint';
 import { setStructureTransparency, clearStructureTransparency } from 'molstar/lib/mol-plugin-state/helpers/structure-transparency';
 import { DEFAULT_SEQUENCE_PANEL_WIDTH, useStore, type SequenceUiMode } from '../store';
+import nexmolViewerMark from '../../assets/nexmol-app-icon.png';
 
 const CHAIN_COLORS = [
   '#1f77b4', '#ff7f0e', '#2ca02c', '#d62728', '#9467bd',
@@ -442,6 +443,7 @@ const MoleculeViewer = forwardRef<MoleculeViewerHandle, { className?: string }>(
     const containerRef = useRef<HTMLDivElement>(null);
     const pluginRef = useRef<PluginUIContext | null>(null);
     const structureLoadedRef = useRef(false);
+    const [hasStructure, setHasStructure] = useState(false);
     const currentSelectionRef = useRef<SelectionSpec | null>(null);
     const currentSelectionLociRef = useRef<any | null>(null);
     const activeSelectionsRef = useRef<SelectionSpec[]>([]);
@@ -1413,6 +1415,8 @@ const MoleculeViewer = forwardRef<MoleculeViewerHandle, { className?: string }>(
         return enqueue(async () => {
           const plugin = getPlugin();
           await plugin.clear();
+          structureLoadedRef.current = false;
+          setHasStructure(false);
           clearSelectionState();
           resetSceneOps();
 
@@ -1427,6 +1431,7 @@ const MoleculeViewer = forwardRef<MoleculeViewerHandle, { className?: string }>(
           });
 
           structureLoadedRef.current = true;
+          setHasStructure(true);
           currentObjectNameRef.current = options?.objectName?.trim() || 'structure';
           lastStructureRef.current = {
             data,
@@ -1706,6 +1711,7 @@ const MoleculeViewer = forwardRef<MoleculeViewerHandle, { className?: string }>(
           const plugin = getPlugin();
           await plugin.clear();
           structureLoadedRef.current = false;
+          setHasStructure(false);
           currentObjectNameRef.current = null;
           lastStructureRef.current = null;
           clearSelectionState();
@@ -1784,11 +1790,28 @@ const MoleculeViewer = forwardRef<MoleculeViewerHandle, { className?: string }>(
 
     return (
       <div className={className} style={{ position: 'relative', minHeight: 0, minWidth: 0, display: 'flex' }}>
-        <div
-          ref={containerRef}
-          className="relative min-w-0 flex-[1_1_0%] overflow-hidden"
-          style={{ background: 'var(--nexmol-viewer-bg, #111111)' }}
-        />
+        <div className="relative min-w-0 flex-[1_1_0%] overflow-hidden" style={{ background: 'var(--nexmol-viewer-bg, #111111)' }}>
+          <div
+            ref={containerRef}
+            className="absolute inset-0"
+            style={{ background: 'var(--nexmol-viewer-bg, #111111)' }}
+          />
+          <div
+            aria-hidden={hasStructure}
+            className={`nexmol-viewer-empty-state ${hasStructure ? 'is-hidden' : ''}`}
+          >
+            <div className="nexmol-viewer-empty-state-brand">
+              <div
+                className="nexmol-viewer-empty-state-mark"
+                style={{ ['--nexmol-mark-mask' as any]: `url(${nexmolViewerMark})` }}
+              >
+                <span className="nexmol-viewer-empty-state-mark-layer nexmol-viewer-empty-state-mark-under" />
+                <span className="nexmol-viewer-empty-state-mark-layer nexmol-viewer-empty-state-mark-core" />
+              </div>
+              <span className="nexmol-viewer-empty-state-wordmark">NexMol</span>
+            </div>
+          </div>
+        </div>
         {pluginRef.current && (
           <SequencePanel
             plugin={pluginRef.current}

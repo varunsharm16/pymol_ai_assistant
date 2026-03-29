@@ -10,15 +10,23 @@ var mainWindow = null;
 var backendProcess = null;
 var backendPort = null;
 var backendStartupError = null;
+function getLiveMainWindow() {
+  if (!mainWindow || mainWindow.isDestroyed()) {
+    mainWindow = null;
+    return null;
+  }
+  return mainWindow;
+}
 var gotLock = import_electron.app.requestSingleInstanceLock();
 if (!gotLock) {
   import_electron.app.quit();
   process.exit(0);
 }
 import_electron.app.on("second-instance", () => {
-  if (mainWindow) {
-    if (mainWindow.isMinimized()) mainWindow.restore();
-    mainWindow.focus();
+  const win = getLiveMainWindow();
+  if (win) {
+    if (win.isMinimized()) win.restore();
+    win.focus();
   }
 });
 function findPython() {
@@ -250,6 +258,11 @@ function createWindow() {
   } else {
     mainWindow.loadFile((0, import_node_path.join)(__dirname, "../dist/index.html"));
   }
+  mainWindow.on("closed", () => {
+    if (mainWindow?.isDestroyed()) {
+      mainWindow = null;
+    }
+  });
 }
 import_electron.app.whenReady().then(async () => {
   import_electron.nativeTheme.themeSource = "dark";
@@ -270,12 +283,12 @@ ${err.message}`
   import_electron.ipcMain.handle("is-packaged-app", () => import_electron.app.isPackaged);
   import_electron.ipcMain.handle("get-app-version", () => import_electron.app.getVersion());
   import_electron.ipcMain.handle("show-save-dialog", async (_evt, opts) => {
-    const win = import_electron.BrowserWindow.getFocusedWindow() || mainWindow;
+    const win = import_electron.BrowserWindow.getFocusedWindow() || getLiveMainWindow();
     if (win) return import_electron.dialog.showSaveDialog(win, opts);
     return import_electron.dialog.showSaveDialog(opts);
   });
   import_electron.ipcMain.handle("show-open-dialog", async (_evt, opts) => {
-    const win = import_electron.BrowserWindow.getFocusedWindow() || mainWindow;
+    const win = import_electron.BrowserWindow.getFocusedWindow() || getLiveMainWindow();
     if (win) return import_electron.dialog.showOpenDialog(win, opts);
     return import_electron.dialog.showOpenDialog(opts);
   });

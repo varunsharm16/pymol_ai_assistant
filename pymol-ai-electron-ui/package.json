@@ -19,6 +19,7 @@
     "directories": {
       "output": "release"
     },
+    "icon": "src/assets/nexmol-app-icon-square.png",
     "files": [
       "dist/**",
       "!dist/nexmol-backend-port.json",
@@ -38,6 +39,7 @@
     "mac": {
       "artifactName": "${productName}-${version}-${arch}.${ext}",
       "category": "public.app-category.education",
+      "icon": "src/assets/nexmol-app-icon-square.png",
       "target": [
         "dmg",
         "dir"
