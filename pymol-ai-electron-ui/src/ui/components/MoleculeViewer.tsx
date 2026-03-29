@@ -84,6 +84,7 @@ export type SelectionSpec = {
   atom?: string;
   object?: string;
   allMatches?: boolean;
+  items?: SelectionSpec[];
 };
 
 export interface MoleculeViewerHandle {
@@ -166,16 +167,17 @@ type AnchorCandidate = {
 const SequencePanel: React.FC<{
   plugin: PluginUIContext;
   mode: SequenceUiMode;
-}> = ({ plugin, mode }) => (
-  <div className="nexmol-sequence-panel relative h-full w-[280px] min-w-[280px] max-w-[320px] border-l border-neutral-800 bg-[#161616] overflow-hidden">
-    <div className="px-3 py-2 border-b border-neutral-800 text-xs uppercase tracking-[0.16em] text-neutral-400">
-      Sequence
-    </div>
-    <div className="h-[calc(100%-37px)] overflow-hidden">
-      <PluginContextContainer plugin={plugin}>
-        <SequenceView key={mode} defaultMode={mode} />
-      </PluginContextContainer>
-    </div>
+  open: boolean;
+}> = ({ plugin, mode, open }) => (
+  <div
+    className={`nexmol-sequence-panel relative h-full shrink-0 overflow-hidden bg-[#161616] transition-[width,flex-basis,opacity,border-color] duration-300 ease-in-out ${
+      open ? 'border-l border-neutral-800 opacity-100' : 'border-l border-transparent opacity-0 pointer-events-none'
+    }`}
+    style={{ width: open ? 420 : 0, flexBasis: open ? 420 : 0 }}
+  >
+    <PluginContextContainer plugin={plugin}>
+      <SequenceView key={mode} defaultMode={mode} />
+    </PluginContextContainer>
   </div>
 );
 
@@ -195,6 +197,7 @@ function describeSelection(spec: SelectionSpec): string {
   if (kind === 'hydrogens') return withScope('hydrogens');
   if (kind === 'active_selection') return 'selected residues';
   if (kind === 'current_selection') return 'current selection';
+  if (kind === 'selection_set') return 'saved selection set';
   if (kind === 'chain') return `chain ${spec.chain}`;
   if (kind === 'residue') {
     if (spec.allMatches && !spec.resi) {
@@ -214,6 +217,12 @@ function describeSelection(spec: SelectionSpec): string {
 }
 
 function selectionKey(spec: SelectionSpec): string {
+  if (spec.kind === 'selection_set') {
+    return JSON.stringify({
+      kind: 'selection_set',
+      items: (spec.items || []).map(selectionKey).sort(),
+    });
+  }
   if (spec.kind === 'residue') {
     return JSON.stringify({
       kind: spec.kind,
@@ -361,6 +370,7 @@ function selectionSchema(spec: SelectionSpec): any {
 
 const MoleculeViewer = forwardRef<MoleculeViewerHandle, { className?: string }>(
   ({ className }, ref) => {
+    const viewerReady = useStore((s) => s.viewerReady);
     const sequenceUiOpen = useStore((s) => s.sequenceUi.open);
     const sequenceUiMode = useStore((s) => s.sequenceUi.mode);
     const setCurrentViewerSelection = useStore((s) => s.setCurrentViewerSelection);
@@ -368,6 +378,7 @@ const MoleculeViewer = forwardRef<MoleculeViewerHandle, { className?: string }>(
     const setSelectedResiduePair = useStore((s) => s.setSelectedResiduePair);
     const clearViewerSelectionState = useStore((s) => s.clearViewerSelectionState);
     const setViewerReady = useStore((s) => s.setViewerReady);
+    const setViewerExpanded = useStore((s) => s.setViewerExpanded);
     const containerRef = useRef<HTMLDivElement>(null);
     const pluginRef = useRef<PluginUIContext | null>(null);
     const structureLoadedRef = useRef(false);
@@ -384,6 +395,7 @@ const MoleculeViewer = forwardRef<MoleculeViewerHandle, { className?: string }>(
     const labelOpsRef = useRef<LabelOperation[]>([]);
     const clearedLabelKeysRef = useRef<Set<string>>(new Set());
     const distanceOpsRef = useRef<DistanceOperation[]>([]);
+    const previousSequenceUiOpenRef = useRef(sequenceUiOpen);
 
     const objectMatchesCurrent = useCallback((objectName?: string) => {
       if (!objectName) return true;
@@ -445,6 +457,20 @@ const MoleculeViewer = forwardRef<MoleculeViewerHandle, { className?: string }>(
       clearedLabelKeysRef.current = new Set();
       distanceOpsRef.current = [];
     }, []);
+
+    const refitStructureIntoViewport = useCallback(() => {
+      if (!structureLoadedRef.current) return;
+      try {
+        const plugin = getPlugin();
+        const structure = getRootStructure();
+        plugin.managers.camera.focusLoci(Structure.toStructureElementLoci(structure), {
+          durationMs: 0,
+          extraRadius: 4,
+        });
+      } catch {
+        // Ignore refit failures during transient layout changes.
+      }
+    }, [getPlugin, getRootStructure]);
 
     const applyScopedLociFilters = useCallback((loci: any, spec: SelectionSpec, structure: any) => {
       let scoped = loci;
@@ -519,6 +545,36 @@ const MoleculeViewer = forwardRef<MoleculeViewerHandle, { className?: string }>(
           };
         }
         return { loci: currentSelectionLociRef.current };
+      }
+
+      if (spec.kind === 'selection_set') {
+        const items = Array.isArray(spec.items) ? spec.items : [];
+        if (!items.length) {
+          return {
+            loci: StructureElement.Loci.none(structure),
+            error: 'Saved selection set is empty.',
+          };
+        }
+
+        let combined = StructureElement.Loci.none(structure);
+        for (const item of items) {
+          const resolved = await resolveSelection(item);
+          if (!StructureElement.Loci.is(resolved.loci) || StructureElement.Loci.isEmpty(resolved.loci)) {
+            continue;
+          }
+          combined = StructureElement.Loci.isEmpty(combined)
+            ? resolved.loci
+            : StructureElement.Loci.union(combined, resolved.loci);
+        }
+
+        if (!StructureElement.Loci.is(combined) || StructureElement.Loci.isEmpty(combined)) {
+          return {
+            loci: StructureElement.Loci.none(structure),
+            error: 'No atoms match the saved selection set.',
+          };
+        }
+
+        return { loci: combined };
       }
 
       if (spec.kind === 'object') {
@@ -1203,10 +1259,89 @@ const MoleculeViewer = forwardRef<MoleculeViewerHandle, { className?: string }>(
       return () => {
         disposed = true;
         setViewerReady(false);
+        setViewerExpanded(false);
         pluginRef.current?.dispose();
         pluginRef.current = null;
       };
-    }, [clearSelectionState, extractSelectionSpec, isSingleResidueLoci, reconcileSelectionState, setViewerReady, syncSelectionState]);
+    }, [clearSelectionState, extractSelectionSpec, isSingleResidueLoci, reconcileSelectionState, setViewerExpanded, setViewerReady, syncSelectionState]);
+
+    useEffect(() => {
+      const host = containerRef.current;
+      if (!host || typeof MutationObserver === 'undefined') return;
+
+      const syncExpandedState = () => {
+        const expanded = Boolean(host.querySelector('.msp-layout-expanded, .msp-viewport-expanded'));
+        setViewerExpanded(expanded);
+      };
+
+      syncExpandedState();
+
+      const observer = new MutationObserver(() => {
+        syncExpandedState();
+      });
+
+      observer.observe(host, {
+        subtree: true,
+        childList: true,
+        attributes: true,
+        attributeFilter: ['class'],
+      });
+
+      return () => {
+        observer.disconnect();
+        setViewerExpanded(false);
+      };
+    }, [setViewerExpanded]);
+
+    useEffect(() => {
+      if (!viewerReady || !containerRef.current || typeof ResizeObserver === 'undefined') return;
+
+      let frame = 0;
+      const observer = new ResizeObserver(() => {
+        cancelAnimationFrame(frame);
+        frame = requestAnimationFrame(() => {
+          pluginRef.current?.canvas3d?.requestResize();
+        });
+      });
+
+      observer.observe(containerRef.current);
+      return () => {
+        cancelAnimationFrame(frame);
+        observer.disconnect();
+      };
+    }, [viewerReady]);
+
+    useEffect(() => {
+      if (!viewerReady) {
+        previousSequenceUiOpenRef.current = sequenceUiOpen;
+        return;
+      }
+
+      const changed = previousSequenceUiOpenRef.current !== sequenceUiOpen;
+      previousSequenceUiOpenRef.current = sequenceUiOpen;
+      if (!changed) return;
+
+      let frame1 = 0;
+      let frame2 = 0;
+      let timeoutId: number | undefined;
+      frame1 = requestAnimationFrame(() => {
+        pluginRef.current?.canvas3d?.requestResize();
+        frame2 = requestAnimationFrame(() => {
+          pluginRef.current?.canvas3d?.requestResize();
+        });
+      });
+
+      timeoutId = window.setTimeout(() => {
+        pluginRef.current?.canvas3d?.requestResize();
+        refitStructureIntoViewport();
+      }, 320);
+
+      return () => {
+        cancelAnimationFrame(frame1);
+        cancelAnimationFrame(frame2);
+        if (timeoutId !== undefined) window.clearTimeout(timeoutId);
+      };
+    }, [refitStructureIntoViewport, sequenceUiOpen, viewerReady]);
 
     useImperativeHandle(ref, () => ({
       loadStructure(data: string, format: string, options?: { objectName?: string }) {
@@ -1241,7 +1376,7 @@ const MoleculeViewer = forwardRef<MoleculeViewerHandle, { className?: string }>(
       showRepresentation(selection: SelectionSpec, representation: string) {
         return enqueue(async () => {
           if (isSurfaceRepresentation(representation)) {
-            const allowedKinds = new Set(['protein', 'ligand', 'residue', 'chain', 'all', 'object', 'current_selection', 'active_selection']);
+            const allowedKinds = new Set(['protein', 'ligand', 'residue', 'chain', 'all', 'object', 'current_selection', 'active_selection', 'selection_set']);
             if (!allowedKinds.has(selection.kind)) {
               throw new Error(`Surface is currently supported for protein, ligand, residue, chain, object, or the full structure. "${describeSelection(selection)}" is not supported.`);
             }
@@ -1575,6 +1710,7 @@ const MoleculeViewer = forwardRef<MoleculeViewerHandle, { className?: string }>(
       requireSelectionLoci,
       resolveAnchorLoci,
       resetSceneOps,
+      refitStructureIntoViewport,
       syncSelectionState,
     ]);
 
@@ -1582,11 +1718,11 @@ const MoleculeViewer = forwardRef<MoleculeViewerHandle, { className?: string }>(
       <div className={className} style={{ position: 'relative', minHeight: 0, minWidth: 0, display: 'flex' }}>
         <div
           ref={containerRef}
-          className="flex-1 overflow-hidden"
+          className="relative min-w-0 flex-[1_1_0%] overflow-hidden"
           style={{ background: '#111111' }}
         />
-        {sequenceUiOpen && pluginRef.current && (
-          <SequencePanel plugin={pluginRef.current} mode={sequenceUiMode} />
+        {pluginRef.current && (
+          <SequencePanel plugin={pluginRef.current} mode={sequenceUiMode} open={sequenceUiOpen} />
         )}
       </div>
     );

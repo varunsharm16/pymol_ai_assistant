@@ -318,6 +318,7 @@ def test_project_save_and_load_roundtrip(client, tmp_path):
         "viewer_state": {
             "backgroundColor": "#ffffff",
             "cameraSnapshot": {"radius": 10},
+            "sequenceUi": {"open": True, "mode": "polymers"},
             "operations": [{"name": "color_selection", "arguments": {"target": {"kind": "ligand"}, "color": "red"}}],
         },
     }
@@ -335,6 +336,27 @@ def test_project_save_and_load_roundtrip(client, tmp_path):
     assert data["data"]["structure_data"] == payload["structure_data"]
     assert data["data"]["structure_format"] == "pdb"
     assert data["data"]["object_name"] == "1CRN"
+    assert data["data"]["viewer_state"] == payload["viewer_state"]
+
+
+def test_project_load_legacy_viewer_state_without_sequence_ui(client, tmp_path):
+    project_path = tmp_path / "legacy.nexmol"
+    payload = {
+        "path": str(project_path),
+        "name": "Legacy",
+        "viewer_state": {
+            "backgroundColor": "#000000",
+            "operations": [],
+        },
+    }
+
+    save_resp = client.post("/projects/save", json=payload)
+    assert save_resp.status_code == 200
+
+    load_resp = client.post("/projects/load", json={"path": str(project_path)})
+    assert load_resp.status_code == 200
+    data = load_resp.json()
+    assert data["ok"] is True
     assert data["data"]["viewer_state"] == payload["viewer_state"]
 
 

@@ -2,9 +2,17 @@
 @tailwind components;
 @tailwind utilities;
 
-:root { color-scheme: dark; }
-.app-drag { -webkit-app-region: drag; }
-.app-no-drag { -webkit-app-region: no-drag; }
+:root {
+  color-scheme: dark;
+}
+
+.app-drag {
+  -webkit-app-region: drag;
+}
+
+.app-no-drag {
+  -webkit-app-region: no-drag;
+}
 
 .nexmol-sequence-panel .msp-plugin {
   background: #161616;
@@ -25,21 +33,237 @@
   inset: auto !important;
   width: 100%;
   height: 100%;
+  background: linear-gradient(180deg, #171717 0%, #111111 100%);
 }
 
 .nexmol-sequence-panel .msp-sequence-wrapper-non-empty {
   position: absolute;
-  inset: 25px 0 0 0;
+  inset: 33px 0 0 0;
   overflow-y: auto;
+  overflow-x: hidden;
+  background: #121212;
 }
 
-.nexmol-sequence-panel .msp-sequence-select,
+.nexmol-sequence-panel .msp-sequence-select {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  height: 32px;
+  padding: 0 10px;
+  overflow-x: auto;
+  overflow-y: hidden;
+  white-space: nowrap;
+  scrollbar-width: thin;
+  background: linear-gradient(180deg, rgba(36, 36, 36, 0.96) 0%, rgba(24, 24, 24, 0.98) 100%);
+  border-bottom: 1px solid #2b2b2b;
+}
+
+.nexmol-sequence-panel .msp-sequence-select>span {
+  padding: 0;
+  color: #9fe870;
+  font-size: 11px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+
+.nexmol-sequence-panel .msp-sequence-select>span:not(.msp-icon),
+.nexmol-sequence-panel .msp-sequence-select>.msp-icon {
+  display: none;
+}
+
+.nexmol-sequence-panel .msp-sequence-select>select {
+  min-width: 92px;
+  max-width: 160px;
+  height: 24px;
+  padding: 0 26px 0 10px;
+  border: 1px solid #3b3b3b;
+  border-radius: 999px;
+  background-color: #111111;
+  color: #e5e5e5;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.04);
+}
+
 .nexmol-sequence-panel .msp-sequence-wrapper,
 .nexmol-sequence-panel .msp-sequence-chain-label {
   background: transparent;
 }
 
+.nexmol-sequence-panel .msp-sequence-wrapper {
+  padding: 10px 12px 18px 12px;
+}
+
+.nexmol-sequence-panel .msp-sequence-chain-label,
+.nexmol-sequence-panel .msp-sequence-wrapper .msp-sequence-number,
+.nexmol-sequence-panel .msp-sequence-wrapper .msp-sequence-label {
+  color: #e7a44a;
+}
+
+.nexmol-sequence-panel .msp-sequence-wrapper .msp-sequence-present {
+  color: #f4efe4;
+}
+
+.nexmol-sequence-panel .msp-sequence-wrapper .msp-sequence-missing {
+  color: #989188;
+}
+
+.nexmol-sequence-panel .msp-sequence-residue-focused {
+  color: #0f1210;
+  background: #9fe870;
+  border-radius: 4px;
+  text-decoration: none;
+}
+
 .nexmol-sequence-panel .msp-btn,
-.nexmol-sequence-panel select {
+.nexmol-sequence-panel select,
+.msp-animation-viewport-controls .msp-btn,
+.msp-animation-viewport-controls .msp-btn-link,
+.msp-animation-viewport-controls .msp-form-control,
+.msp-selection-viewport-controls .msp-btn,
+.msp-selection-viewport-controls .msp-btn-link,
+.msp-selection-viewport-controls .msp-form-control,
+.msp-viewport-controls .msp-btn,
+.msp-viewport-controls .msp-btn-link,
+.msp-viewport-controls .msp-form-control {
   color: #e5e5e5;
+}
+
+.msp-animation-viewport-controls .msp-btn,
+.msp-animation-viewport-controls .msp-btn-link,
+.msp-animation-viewport-controls .msp-form-control,
+.msp-selection-viewport-controls .msp-btn,
+.msp-selection-viewport-controls .msp-btn-link,
+.msp-selection-viewport-controls .msp-form-control,
+.msp-viewport-controls .msp-btn,
+.msp-viewport-controls .msp-btn-link,
+.msp-viewport-controls .msp-form-control,
+.msp-viewport-controls-panel .msp-btn,
+.msp-viewport-controls-panel .msp-form-control {
+  border-radius: 12px;
+  border: 1px solid #363636;
+  background: rgba(21, 21, 21, 0.94);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.04);
+}
+
+.msp-animation-viewport-controls .msp-btn:hover,
+.msp-animation-viewport-controls .msp-btn-link:hover,
+.msp-animation-viewport-controls .msp-form-control:hover,
+.msp-selection-viewport-controls .msp-btn:hover,
+.msp-selection-viewport-controls .msp-btn-link:hover,
+.msp-selection-viewport-controls .msp-form-control:hover,
+.msp-viewport-controls .msp-btn:hover,
+.msp-viewport-controls .msp-btn-link:hover,
+.msp-viewport-controls .msp-form-control:hover,
+.msp-viewport-controls-panel .msp-btn:hover,
+.msp-viewport-controls-panel .msp-form-control:hover {
+  border-color: #4a4a4a;
+  background: rgba(28, 28, 28, 0.98);
+}
+
+.msp-animation-viewport-controls .msp-btn-link-toggle-on,
+.msp-selection-viewport-controls .msp-btn-link-toggle-on,
+.msp-selection-viewport-controls .msp-btn-commit-on,
+.msp-viewport-controls .msp-btn-link-toggle-on,
+.msp-viewport-controls-panel .msp-btn-link-toggle-on {
+  color: #9fe870 !important;
+  border-color: rgba(159, 232, 112, 0.5);
+  background: rgba(36, 50, 27, 0.94);
+}
+
+.msp-animation-viewport-controls .msp-btn-link-toggle-off,
+.msp-selection-viewport-controls .msp-btn-link-toggle-off,
+.msp-viewport-controls .msp-btn-link-toggle-off {
+  color: #9a9a9a;
+}
+
+.msp-animation-viewport-controls .msp-semi-transparent-background,
+.msp-viewport-controls .msp-semi-transparent-background {
+  opacity: 1;
+  border-radius: 12px;
+  border: 1px solid #2f2f2f;
+  background: rgba(17, 17, 17, 0.82);
+  backdrop-filter: blur(10px);
+}
+
+.msp-animation-viewport-controls .msp-animation-viewport-controls-select,
+.msp-viewport-controls .msp-hover-box-body,
+.msp-viewport-controls .msp-viewport-controls-panel,
+.msp-selection-viewport-controls .msp-selection-viewport-controls-actions {
+  border: 1px solid #2f2f2f;
+  border-radius: 14px;
+  background: rgba(17, 17, 17, 0.96);
+  box-shadow: 0 12px 30px rgba(0, 0, 0, 0.28);
+}
+
+.msp-animation-viewport-controls {
+  position: absolute;
+  left: 0px;
+  top: 0px;
+  z-index: 6;
+  line-height: normal;
+  margin: 0;
+}
+
+.msp-animation-viewport-controls>div:first-child>button {
+  width: 32px;
+  height: 32px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 12px;
+}
+
+.msp-animation-viewport-controls .msp-animation-viewport-controls-select {
+  left: 0;
+  top: 52px;
+  margin-top: 0;
+  width: 320px;
+  background: rgba(17, 17, 17, 0.96);
+}
+
+.msp-selection-viewport-controls {
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: 0px;
+  transform: none;
+  width: min(520px, calc(100% - 160px));
+  margin: 0 auto;
+  z-index: 5;
+}
+
+.msp-selection-viewport-controls .msp-flex-row,
+.msp-viewport-controls .msp-viewport-controls-buttons {
+  gap: 6px;
+}
+
+.msp-selection-viewport-controls>.msp-flex-row {
+  margin-top: 0;
+  align-items: center;
+  justify-content: center;
+}
+
+.msp-selection-viewport-controls>.msp-flex-row>.msp-btn,
+.msp-selection-viewport-controls>.msp-flex-row>.msp-btn-link,
+.msp-selection-viewport-controls>.msp-flex-row>.msp-btn-icon {
+  width: 32px;
+  min-width: 32px;
+  max-width: 32px;
+  height: 32px;
+  line-height: 30px;
+  padding: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex: 0 0 32px;
+}
+
+.msp-selection-viewport-controls>.msp-flex-row select.msp-form-control {
+  width: 120px;
+  min-width: 120px;
+  max-width: 120px;
+  height: 32px;
+  padding: 0 12px;
+  flex: 0 0 120px;
+  text-align: center;
+  text-align-last: center;
 }

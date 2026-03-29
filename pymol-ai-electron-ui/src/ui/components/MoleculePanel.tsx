@@ -12,6 +12,7 @@ const MoleculePanel: React.FC = () => {
   const setCurrentProjectMolecule = useStore((s) => s.setCurrentProjectMolecule);
   const setCurrentProjectStructure = useStore((s) => s.setCurrentProjectStructure);
   const setCurrentProjectViewerState = useStore((s) => s.setCurrentProjectViewerState);
+  const sequenceUi = useStore((s) => s.sequenceUi);
   const viewerReady = useStore((s) => s.viewerReady);
   const addLog = useStore((s) => s.addLog);
   const updateLog = useStore((s) => s.updateLog);
@@ -92,6 +93,7 @@ const MoleculePanel: React.FC = () => {
           backgroundColor: snapshot.backgroundColor,
           cameraSnapshot: snapshot.cameraSnapshot,
           operations: [],
+          sequenceUi,
         });
         setPdbStatus('loaded');
         setPdbMsg(`Loaded ${normalizedId}`);
@@ -158,6 +160,7 @@ const MoleculePanel: React.FC = () => {
           backgroundColor: snapshot.backgroundColor,
           cameraSnapshot: snapshot.cameraSnapshot,
           operations: [],
+          sequenceUi,
         });
         setImportStatus('loaded');
         setImportMsg(`Loaded ${name}`);

@@ -7,7 +7,7 @@ import { RightPanels } from './components/RightPanels';
 import MoleculeViewer, { MoleculeViewerHandle } from './components/MoleculeViewer';
 import { useStore } from './store';
 import { Button } from './components/Button';
-import { Settings, Activity, Atom, MessageSquare, Box, FolderKanban, List } from 'lucide-react';
+import { Settings, Activity, Atom, MessageSquare, Box, FolderKanban, List, FileText, Wrench, CircleHelp } from 'lucide-react';
 import ApiKeyModal from './components/ApiKeyModal';
 import OnboardingModal from './components/OnboardingModal';
 import { checkApiKey } from './lib/bridge';
@@ -44,31 +44,35 @@ const Toolbar: React.FC = () => {
         Projects
       </Button>
       <Button size="sm" onClick={() => setPanel('notepad')} className="app-no-drag">
+        <FileText className="w-3.5 h-3.5 mr-1" />
         Note Pad
       </Button>
       <Button size="sm" onClick={() => setPanel('toolbox')} className="app-no-drag">
+        <Wrench className="w-3.5 h-3.5 mr-1" />
         Tool Box
       </Button>
       <Button
         size="sm"
         onClick={() => toggleSequenceUi()}
-        className="app-no-drag"
-        variant={sequenceOpen ? 'solid' : 'outline'}
+        className={`app-no-drag ${sequenceOpen ? 'bg-[#1F1F1F] hover:bg-[#171717]' : ''}`}
+        variant="solid"
       >
         <List className="w-3.5 h-3.5 mr-1" />
         Sequence
       </Button>
 
       <div className="relative app-no-drag" ref={helpRef} onPointerDown={(e) => e.stopPropagation()}>
-        <button
+        <Button
           type="button"
+          size="sm"
           onClick={() => setShowHelp((v) => !v)}
-          className="px-3 py-1.5 rounded-full bg-[#2A2A2A] hover:bg-[#1F1F1F] text-neutral-200 text-sm"
+          className={showHelp ? 'bg-[#1F1F1F] hover:bg-[#171717]' : ''}
           aria-haspopup="menu"
           aria-expanded={showHelp}
         >
+          <CircleHelp className="w-3.5 h-3.5 mr-1" />
           Help
-        </button>
+        </Button>
 
         {showHelp && (
           <div
@@ -126,6 +130,7 @@ const App: React.FC = () => {
   const currentProjectStructure = useStore((s) => s.projectStructures[s.currentProjectId]);
   const addLogToProject = useStore((s) => s.addLogToProject);
   const viewerReady = useStore((s) => s.viewerReady);
+  const viewerExpanded = useStore((s) => s.viewerExpanded);
   const [showOnboarding, setShowOnboarding] = React.useState(false);
   const [bottomTab, setBottomTab] = React.useState<BottomTab>('viewer');
   const onboardingKey = 'nexmol_onboarding_complete';
@@ -142,9 +147,19 @@ const App: React.FC = () => {
     const restore = async () => {
       const viewer = viewerRef.current;
       if (!viewer || !viewerReady) return;
+      const latestViewerState = useStore.getState().projectViewerStates[currentProjectId];
 
       if (!currentProjectStructure?.data) {
         await viewer.clear();
+        if (cancelled) return;
+        const restoreErrors = await restoreViewerState(latestViewerState, viewer);
+        if (!cancelled && restoreErrors.length) {
+          addLogToProject(currentProjectId, {
+            prompt: 'Restore project scene',
+            status: 'error',
+            message: restoreErrors.join(' | '),
+          });
+        }
         return;
       }
 
@@ -154,8 +169,6 @@ const App: React.FC = () => {
         });
 
         if (cancelled) return;
-
-        const latestViewerState = useStore.getState().projectViewerStates[currentProjectId];
         const restoreErrors = await restoreViewerState(latestViewerState, viewer);
         if (!cancelled && restoreErrors.length) {
           addLogToProject(currentProjectId, {
@@ -207,11 +220,12 @@ const App: React.FC = () => {
       style={{ fontFamily: 'var(--font-sans, Arial, Verdana, system-ui)' }}
     >
       <TopBar />
-      <Toolbar />
+      {!viewerExpanded && <Toolbar />}
       <div className="flex-1 flex overflow-hidden border-t border-neutral-800">
         {/* Main content: viewer + chat */}
         <div className="min-w-0 flex-1 flex flex-col">
           {/* Tab bar */}
+          {!viewerExpanded && (
           <div className="flex items-center bg-neutral-900/60 border-b border-neutral-800 px-2">
             <button
               onClick={() => setBottomTab('viewer')}
@@ -236,6 +250,7 @@ const App: React.FC = () => {
               Chat Log
             </button>
           </div>
+          )}
 
           {/* Content area */}
           <div className="flex-1 relative overflow-hidden">
@@ -255,10 +270,10 @@ const App: React.FC = () => {
           </div>
 
           {/* Prompt input always visible */}
-          <PromptInput />
-          <QuickActions />
+          {!viewerExpanded && <PromptInput />}
+          {!viewerExpanded && <QuickActions />}
         </div>
-        <RightPanels />
+        {!viewerExpanded && <RightPanels />}
       </div>
       <ApiKeyModal
         open={showApiKeyModal}

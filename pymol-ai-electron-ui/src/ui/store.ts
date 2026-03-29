@@ -49,8 +49,9 @@ export type ViewerSelectionSpec =
   | { kind: 'hydrogens' }
   | { kind: 'active_selection' }
   | { kind: 'current_selection' }
+  | { kind: 'selection_set'; items: ViewerSelectionSpec[] }
   | { kind: 'chain'; chain: string; object?: string }
-  | { kind: 'residue'; residue: string; chain?: string; resi?: string; atom?: string; object?: string }
+  | { kind: 'residue'; residue: string; chain?: string; resi?: string; atom?: string; object?: string; allMatches?: boolean }
   | { kind: 'atom'; atom: string; residue?: string; chain?: string; resi?: string; object?: string }
   | { kind: 'object'; object: string };
 
@@ -71,6 +72,7 @@ export type ViewerState = {
   backgroundColor?: string;
   cameraSnapshot?: any;
   operations: NormalizedSpec[];
+  sequenceUi?: { open: boolean; mode: SequenceUiMode };
 };
 
 type Right =
@@ -98,6 +100,7 @@ type State = {
   selectedResiduePair: ViewerSelectionSpec[];
   sequenceUi: { open: boolean; mode: SequenceUiMode };
   viewerReady: boolean;
+  viewerExpanded: boolean;
 
   apiKeyConfigured: boolean;
   showApiKeyModal: boolean;
@@ -128,6 +131,7 @@ type State = {
   toggleSequenceUi: () => void;
   setSequenceUiMode: (mode: SequenceUiMode) => void;
   setViewerReady: (ready: boolean) => void;
+  setViewerExpanded: (expanded: boolean) => void;
   setPendingRename: (id: string | null) => void;
   selectProject: (id: string) => void;
   renameProject: (id: string, name: string) => void;
@@ -175,7 +179,9 @@ function createWorkspaceState(name = 'New Project') {
     notes: { [project.id]: '' },
     projectMolecules: { [project.id]: {} as MoleculeInfo },
     projectStructures: { [project.id]: undefined as ProjectStructure | undefined },
-    projectViewerStates: { [project.id]: { operations: [] } as ViewerState },
+    projectViewerStates: {
+      [project.id]: { operations: [], sequenceUi: { open: false, mode: 'single' } } as ViewerState,
+    },
   };
 }
 
@@ -196,6 +202,7 @@ export const useStore = create<State>((set, get) => ({
   selectedResiduePair: [],
   sequenceUi: { open: false, mode: 'single' },
   viewerReady: false,
+  viewerExpanded: false,
 
   apiKeyConfigured: false,
   showApiKeyModal: false,
@@ -241,7 +248,10 @@ export const useStore = create<State>((set, get) => ({
       notes: { ...s.notes, [p.id]: '' },
       projectMolecules: { ...s.projectMolecules, [p.id]: {} },
       projectStructures: { ...s.projectStructures, [p.id]: undefined },
-      projectViewerStates: { ...s.projectViewerStates, [p.id]: { operations: [] } },
+      projectViewerStates: {
+        ...s.projectViewerStates,
+        [p.id]: { operations: [], sequenceUi: { open: false, mode: 'single' } },
+      },
       pendingRenameId: p.id,
     }));
     return p.id;
@@ -267,7 +277,7 @@ export const useStore = create<State>((set, get) => ({
         notes[fallbackProject.id] = '';
         projectMolecules[fallbackProject.id] = {};
         projectStructures[fallbackProject.id] = undefined;
-        projectViewerStates[fallbackProject.id] = { operations: [] };
+        projectViewerStates[fallbackProject.id] = { operations: [], sequenceUi: { open: false, mode: 'single' } };
       }
 
       return {
@@ -316,12 +326,50 @@ export const useStore = create<State>((set, get) => ({
   setSelectedResiduePair: (pair) => set({ selectedResiduePair: pair }),
   clearViewerSelectionState: () => set({ currentViewerSelection: null, activeViewerSelections: [], selectedResiduePair: [] }),
   setSequenceUiOpen: (open) =>
-    set((s) => ({ sequenceUi: { ...s.sequenceUi, open } })),
+    set((s) => {
+      const currentViewerState = s.projectViewerStates[s.currentProjectId] || { operations: [] };
+      return {
+        sequenceUi: { ...s.sequenceUi, open },
+        projectViewerStates: {
+          ...s.projectViewerStates,
+          [s.currentProjectId]: {
+            ...currentViewerState,
+            sequenceUi: { ...(currentViewerState.sequenceUi || s.sequenceUi), open },
+          },
+        },
+      };
+    }),
   toggleSequenceUi: () =>
-    set((s) => ({ sequenceUi: { ...s.sequenceUi, open: !s.sequenceUi.open } })),
+    set((s) => {
+      const open = !s.sequenceUi.open;
+      const currentViewerState = s.projectViewerStates[s.currentProjectId] || { operations: [] };
+      return {
+        sequenceUi: { ...s.sequenceUi, open },
+        projectViewerStates: {
+          ...s.projectViewerStates,
+          [s.currentProjectId]: {
+            ...currentViewerState,
+            sequenceUi: { ...(currentViewerState.sequenceUi || s.sequenceUi), open },
+          },
+        },
+      };
+    }),
   setSequenceUiMode: (mode) =>
-    set((s) => ({ sequenceUi: { ...s.sequenceUi, mode } })),
+    set((s) => {
+      const currentViewerState = s.projectViewerStates[s.currentProjectId] || { operations: [] };
+      return {
+        sequenceUi: { ...s.sequenceUi, mode },
+        projectViewerStates: {
+          ...s.projectViewerStates,
+          [s.currentProjectId]: {
+            ...currentViewerState,
+            sequenceUi: { ...(currentViewerState.sequenceUi || s.sequenceUi), mode },
+          },
+        },
+      };
+    }),
   setViewerReady: (ready) => set({ viewerReady: ready }),
+  setViewerExpanded: (expanded) => set({ viewerExpanded: expanded }),
 
   setApiKeyConfigured: (v) => set({ apiKeyConfigured: v }),
   setShowApiKeyModal: (v) => set({ showApiKeyModal: v }),
@@ -379,7 +427,7 @@ export const useStore = create<State>((set, get) => ({
       projectStructures: { ...s.projectStructures, [projectId]: structure },
       projectViewerStates: {
         ...s.projectViewerStates,
-        [projectId]: viewerState || { operations: [] },
+        [projectId]: viewerState || { operations: [], sequenceUi: { open: false, mode: 'single' } },
       },
     }));
     return projectId;

@@ -216,6 +216,58 @@ function cloneSpec<T>(value: T): T {
   return JSON.parse(JSON.stringify(value));
 }
 
+function materializeSelectionForPersistence(selection: SelectionSpec | undefined): SelectionSpec | undefined {
+  if (!selection) return undefined;
+  const store = useStore.getState();
+
+  if (selection.kind === 'current_selection') {
+    return store.currentViewerSelection ? cloneSpec(store.currentViewerSelection as SelectionSpec) : undefined;
+  }
+
+  if (selection.kind === 'active_selection') {
+    const items = (store.activeViewerSelections || []).map((item) => cloneSpec(item as SelectionSpec));
+    if (!items.length) return undefined;
+    if (items.length === 1) return items[0];
+    return { kind: 'selection_set', items };
+  }
+
+  if (selection.kind === 'selection_set') {
+    return {
+      kind: 'selection_set',
+      items: (selection.items || []).map((item) => materializeSelectionForPersistence(item) || item),
+    };
+  }
+
+  return cloneSpec(selection);
+}
+
+function materializeSpecForPersistence(spec: NormalizedSpec): NormalizedSpec {
+  const cloned = cloneSpec(spec);
+  const args = { ...(cloned.arguments || {}) };
+  const store = useStore.getState();
+
+  if (cloned.name === 'measure_distance') {
+    const source = args.source as SelectionSpec | undefined;
+    const target = args.target as SelectionSpec | undefined;
+    if (source?.kind === 'current_selection' && target?.kind === 'current_selection' && store.selectedResiduePair.length >= 2) {
+      args.source = cloneSpec(store.selectedResiduePair[0] as SelectionSpec);
+      args.target = cloneSpec(store.selectedResiduePair[1] as SelectionSpec);
+    } else {
+      args.source = materializeSelectionForPersistence(source);
+      args.target = materializeSelectionForPersistence(target);
+    }
+  } else if ('target' in args) {
+    args.target = materializeSelectionForPersistence(args.target as SelectionSpec | undefined);
+  }
+
+  cloned.arguments = args;
+  return cloned;
+}
+
+function selectionsEquivalent(a?: SelectionSpec, b?: SelectionSpec): boolean {
+  return JSON.stringify(a || null) === JSON.stringify(b || null);
+}
+
 function operationKey(spec: NormalizedSpec): string | null {
   const args = spec.arguments || {};
   switch (spec.name) {
@@ -262,11 +314,21 @@ export function updateViewerStateAfterCommand(
   snapshot: { backgroundColor?: string; cameraSnapshot?: any }
 ): ViewerState {
   let nextOperations = [...(current?.operations || [])];
-  if (spec.name === 'clear_measurements') {
+  const materialized = materializeSpecForPersistence(spec);
+  if (materialized.name === 'clear_measurements') {
     nextOperations = nextOperations.filter((op) => op.name !== 'measure_distance');
   }
-  if (shouldPersistOperation(spec)) {
-    const cloned = cloneSpec(spec);
+  if (materialized.name === 'clear_labels') {
+    const clearTarget = materialized.arguments?.target as SelectionSpec | undefined;
+    nextOperations = nextOperations.filter((op) => {
+      if (op.name !== 'label_selection') return true;
+      if (!clearTarget) return false;
+      const labelTarget = op.arguments?.target as SelectionSpec | undefined;
+      return !selectionsEquivalent(labelTarget, clearTarget);
+    });
+  }
+  if (shouldPersistOperation(materialized)) {
+    const cloned = cloneSpec(materialized);
     const key = operationKey(cloned);
     if (key) {
       const index = nextOperations.findIndex((op) => operationKey(op) === key);
@@ -283,15 +345,84 @@ export function updateViewerStateAfterCommand(
   return {
     backgroundColor: snapshot.backgroundColor,
     cameraSnapshot: snapshot.cameraSnapshot ? cloneSpec(snapshot.cameraSnapshot) : undefined,
+    sequenceUi: cloneSpec(useStore.getState().sequenceUi),
     operations: nextOperations,
   };
+}
+
+async function replayOperation(viewer: MoleculeViewerHandle, spec: NormalizedSpec): Promise<void> {
+  const args = spec.arguments || {};
+  switch (spec.name) {
+    case 'show_representation':
+      await viewer.showRepresentation(args.target as SelectionSpec, args.representation as string);
+      return;
+    case 'hide_representation':
+      await viewer.hideRepresentation(args.target as SelectionSpec, (args.representation as string) || 'everything');
+      return;
+    case 'isolate_selection':
+      await viewer.isolateSelection(args.target as SelectionSpec, args.representation as string | undefined);
+      return;
+    case 'remove_selection':
+      await viewer.removeSelection(args.target as SelectionSpec);
+      return;
+    case 'color_selection':
+      await viewer.colorSelection(args.target as SelectionSpec, args.color as string);
+      return;
+    case 'color_by_chain':
+      await viewer.colorByChain(args.target as SelectionSpec);
+      return;
+    case 'color_by_element':
+      await viewer.colorByElement(args.target as SelectionSpec);
+      return;
+    case 'set_transparency':
+      await viewer.setTransparency(args.target as SelectionSpec, args.value as number, (args.representation as string) || 'surface');
+      return;
+    case 'label_selection':
+      await viewer.labelSelection(args.target as SelectionSpec, (args.mode as string) || 'residue');
+      return;
+    case 'measure_distance':
+      await viewer.measureDistance(args.source as SelectionSpec, args.target as SelectionSpec);
+      return;
+    default:
+      throw new Error(`Unsupported restore operation: ${spec.name}`);
+  }
+}
+
+function restoreStage(spec: NormalizedSpec): number {
+  switch (spec.name) {
+    case 'show_representation':
+    case 'hide_representation':
+    case 'isolate_selection':
+    case 'remove_selection':
+      return 0;
+    case 'color_selection':
+    case 'color_by_chain':
+    case 'color_by_element':
+      return 1;
+    case 'set_transparency':
+      return 2;
+    case 'label_selection':
+      return 3;
+    case 'measure_distance':
+      return 4;
+    default:
+      return 99;
+  }
 }
 
 export async function restoreViewerState(
   viewerState: ViewerState | undefined,
   viewer: MoleculeViewerHandle
 ): Promise<string[]> {
-  if (!viewerState) return [];
+  const store = useStore.getState();
+  const applySequenceUi = (sequenceUi?: ViewerState['sequenceUi']) => {
+    store.setSequenceUiMode(sequenceUi?.mode || 'single');
+    store.setSequenceUiOpen(sequenceUi?.open || false);
+  };
+  if (!viewerState) {
+    applySequenceUi(undefined);
+    return [];
+  }
 
   const errors: string[] = [];
   try {
@@ -301,6 +432,19 @@ export async function restoreViewerState(
   } catch (error: any) {
     errors.push(error?.message || 'Failed to restore viewer scene snapshot.');
   }
+
+  if (viewer.hasStructure()) {
+    const operations = [...(viewerState.operations || [])].sort((a, b) => restoreStage(a) - restoreStage(b));
+    for (const operation of operations) {
+      try {
+        await replayOperation(viewer, operation);
+      } catch (error: any) {
+        errors.push(`Failed to restore ${operation.name}: ${error?.message || 'Unknown error'}`);
+      }
+    }
+  }
+
+  applySequenceUi(viewerState.sequenceUi);
 
   return errors;
 }
@@ -324,6 +468,7 @@ function describeSelection(spec: SelectionSpec): string {
   if (kind === 'hydrogens') return withScope('hydrogens');
   if (kind === 'active_selection') return 'selected residues';
   if (kind === 'current_selection') return 'current selection';
+  if (kind === 'selection_set') return 'saved selection set';
 
   if (kind === 'chain') {
     return `chain ${spec.chain}`;
