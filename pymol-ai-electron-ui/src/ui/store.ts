@@ -78,6 +78,7 @@ export type ViewerState = {
 
 type Right =
   | 'none'
+  | 'chat'
   | 'projects'
   | 'notepad'
   | 'toolbox'
@@ -95,7 +96,7 @@ type State = {
   projectStructures: Record<string, ProjectStructure | undefined>;
   projectViewerStates: Record<string, ViewerState | undefined>;
   draft: string;
-  ui: { rightPanel: Right; quickActionsExpanded: boolean };
+  ui: { rightPanel: Right };
   currentViewerSelection: ViewerSelectionSpec | null;
   activeViewerSelections: ViewerSelectionSpec[];
   selectedResiduePair: ViewerSelectionSpec[];
@@ -113,7 +114,6 @@ type State = {
 
   forceRightPanel: (p: Right) => void;
   setRightPanel: (p: Right) => void;
-  toggleQuickActions: () => void;
   setProjectName: (name: string) => void;
   createProject: (name: string) => string;
   deleteProject: (id: string) => void;
@@ -198,7 +198,7 @@ export const useStore = create<State>((set, get) => ({
   projectStructures: initialWorkspace.projectStructures,
   projectViewerStates: initialWorkspace.projectViewerStates,
   draft: '',
-  ui: { rightPanel: 'none', quickActionsExpanded: false },
+  ui: { rightPanel: 'none' },
   currentViewerSelection: null,
   activeViewerSelections: [],
   selectedResiduePair: [],
@@ -229,10 +229,6 @@ export const useStore = create<State>((set, get) => ({
     })),
   forceRightPanel: (p) =>
     set((s) => ({ ui: { ...s.ui, rightPanel: p } })),
-  toggleQuickActions: () =>
-    set((s) => ({
-      ui: { ...s.ui, quickActionsExpanded: !s.ui.quickActionsExpanded },
-    })),
   setProjectName: (name) =>
     set((s) => ({
       projects: s.projects.map((p) =>
@@ -300,7 +296,7 @@ export const useStore = create<State>((set, get) => ({
     set((s) => ({
       logs: {
         ...s.logs,
-        [projectId]: [logEntry, ...(s.logs[projectId] || [])],
+        [projectId]: [...(s.logs[projectId] || []), logEntry],
       },
     }));
     return id;
@@ -462,7 +458,7 @@ export const useStore = create<State>((set, get) => ({
       pendingRenameId: null,
       switchingProject: false,
       draft: '',
-      ui: { ...s.ui, rightPanel: 'none' },
+      ui: { rightPanel: 'none' },
       currentViewerSelection: null,
       activeViewerSelections: [],
       selectedResiduePair: [],

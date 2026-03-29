@@ -6,6 +6,7 @@ import { parsePromptToSpec } from '../lib/parse';
 import { executeCommandSpec, updateViewerStateAfterCommand } from '../lib/viewerActions';
 import { globalViewerRef } from '../App';
 import type { ViewerSelectionSpec } from '../store';
+import { QuickActions } from './QuickActions';
 
 function formatSelectionTag(selection: ViewerSelectionSpec): string {
   if (selection.kind !== 'residue') {
@@ -203,7 +204,7 @@ export const PromptInput: React.FC = () => {
   };
 
   return (
-    <div className="p-3 pt-2 flex flex-col gap-1.5">
+    <div className="border-t border-neutral-800 bg-[#171717] p-3 pt-2 flex flex-col gap-2">
       {activeViewerSelections.length > 0 && (
         <div className="flex flex-wrap gap-2">
           {activeViewerSelections.map((selection, index) => {
@@ -238,6 +239,8 @@ export const PromptInput: React.FC = () => {
           })}
         </div>
       )}
+      <QuickActions query={draft} />
+
       <div className="flex items-center">
         <input
           id="prompt-input"

@@ -1,13 +1,10 @@
 import React from 'react';
 import TopBar from './components/TopBar';
-import { PromptLog } from './components/PromptLog';
-import { PromptInput } from './components/PromptInput';
-import { QuickActions } from './components/QuickActions';
 import { RightPanels } from './components/RightPanels';
 import MoleculeViewer, { MoleculeViewerHandle } from './components/MoleculeViewer';
 import { useStore } from './store';
 import { Button } from './components/Button';
-import { Settings, Activity, Atom, MessageSquare, Box, FolderKanban, List, FileText, Wrench, CircleHelp } from 'lucide-react';
+import { Settings, Activity, Atom, MessageSquare, FolderKanban, List, FileText, Wrench, CircleHelp } from 'lucide-react';
 import ApiKeyModal from './components/ApiKeyModal';
 import OnboardingModal from './components/OnboardingModal';
 import { checkApiKey } from './lib/bridge';
@@ -15,8 +12,6 @@ import { restoreViewerState } from './lib/viewerActions';
 
 // Global viewer ref accessible by other modules
 export let globalViewerRef: React.RefObject<MoleculeViewerHandle | null> = React.createRef();
-
-type BottomTab = 'chat' | 'viewer';
 
 const Toolbar: React.FC = () => {
   const setPanel = useStore((s) => s.setRightPanel);
@@ -50,6 +45,10 @@ const Toolbar: React.FC = () => {
       <Button size="sm" onClick={() => setPanel('toolbox')} className="app-no-drag">
         <Wrench className="w-3.5 h-3.5 mr-1" />
         Tool Box
+      </Button>
+      <Button size="sm" onClick={() => setPanel('chat')} className="app-no-drag">
+        <MessageSquare className="w-3.5 h-3.5 mr-1" />
+        Chat
       </Button>
       <Button
         size="sm"
@@ -134,7 +133,6 @@ const App: React.FC = () => {
   const sequenceOpen = useStore((s) => s.sequenceUi.open);
   const setSequenceUiOpen = useStore((s) => s.setSequenceUiOpen);
   const [showOnboarding, setShowOnboarding] = React.useState(false);
-  const [bottomTab, setBottomTab] = React.useState<BottomTab>('viewer');
   const onboardingKey = 'nexmol_onboarding_complete';
   const restoreSequenceAfterExpandedRef = React.useRef(false);
 
@@ -240,56 +238,11 @@ const App: React.FC = () => {
       {!viewerExpanded && <TopBar />}
       {!viewerExpanded && <Toolbar />}
       <div className="flex-1 flex overflow-hidden border-t border-neutral-800">
-        {/* Main content: viewer + chat */}
+        {/* Main content: viewer */}
         <div className="min-w-0 flex-1 flex flex-col">
-          {/* Tab bar */}
-          {!viewerExpanded && (
-          <div className="flex items-center bg-neutral-900/60 border-b border-neutral-800 px-2">
-            <button
-              onClick={() => setBottomTab('viewer')}
-              className={`flex items-center gap-1.5 px-3 py-2 text-sm font-medium border-b-2 transition-colors ${
-                bottomTab === 'viewer'
-                  ? 'border-brand text-brand'
-                  : 'border-transparent text-neutral-400 hover:text-neutral-200'
-              }`}
-            >
-              <Box className="w-3.5 h-3.5" />
-              Viewer
-            </button>
-            <button
-              onClick={() => setBottomTab('chat')}
-              className={`flex items-center gap-1.5 px-3 py-2 text-sm font-medium border-b-2 transition-colors ${
-                bottomTab === 'chat'
-                  ? 'border-brand text-brand'
-                  : 'border-transparent text-neutral-400 hover:text-neutral-200'
-              }`}
-            >
-              <MessageSquare className="w-3.5 h-3.5" />
-              Chat Log
-            </button>
-          </div>
-          )}
-
-          {/* Content area */}
           <div className="flex-1 relative overflow-hidden">
-            {/* Viewer always mounted for state persistence, hidden when not active */}
-            <div
-              className="absolute inset-0"
-              style={{ display: bottomTab === 'viewer' ? 'block' : 'none' }}
-            >
-              <MoleculeViewer ref={viewerRef} className="w-full h-full" />
-            </div>
-            <div
-              className="absolute inset-0 overflow-auto"
-              style={{ display: bottomTab === 'chat' ? 'block' : 'none' }}
-            >
-              <PromptLog />
-            </div>
+            <MoleculeViewer ref={viewerRef} className="w-full h-full" />
           </div>
-
-          {/* Prompt input always visible */}
-          {!viewerExpanded && <PromptInput />}
-          {!viewerExpanded && <QuickActions />}
         </div>
         {!viewerExpanded && <RightPanels />}
       </div>

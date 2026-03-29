@@ -5,6 +5,8 @@ import { Copy, Plus, Save, FolderOpen } from 'lucide-react';
 import SettingsPanel from './SettingsPanel';
 import HealthCheckPanel from './HealthCheckPanel';
 import MoleculePanel from './MoleculePanel';
+import { PromptLog } from './PromptLog';
+import { PromptInput } from './PromptInput';
 import { saveProject, loadProject, getRecentProjects, fetchStructureData, readStructureFile } from '../lib/bridge';
 import ConfirmDialog from './ConfirmDialog';
 
@@ -22,6 +24,7 @@ export const RightPanels: React.FC = () => {
       } overflow-hidden`}
     >
       {panel === 'projects' && <ProjectsPanel />}
+      {panel === 'chat' && <ChatPanel />}
       {panel === 'notepad' && <NotePadPanel notes={notes} onChange={setNotes} />}
       {panel === 'toolbox' && <ToolBoxPanel />}
       {panel === 'help' && <HelpPanel />}
@@ -35,6 +38,16 @@ export const RightPanels: React.FC = () => {
 const SectionTitle: React.FC<{ children: React.ReactNode }> = ({ children }) => (
   <div className="px-4 py-3 text-sm uppercase tracking-wide text-neutral-300 bg-neutral-900">
     {children}
+  </div>
+);
+
+const ChatPanel: React.FC = () => (
+  <div className="h-full flex flex-col bg-[#171717]">
+    <SectionTitle>Chat</SectionTitle>
+    <div className="min-h-0 flex-1 flex flex-col">
+      <PromptLog />
+      <PromptInput />
+    </div>
   </div>
 );
 
