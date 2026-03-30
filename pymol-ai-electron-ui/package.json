@@ -1,6 +1,8 @@
 {
   "name": "pymol-ai-assistant-electron",
-  "version": "0.1.1-alpha",
+  "version": "0.2.1-alpha",
+  "description": "Desktop UI for NexMol molecular visualization and AI assistance.",
+  "author": "varunsharm16",
   "private": true,
   "type": "module",
   "main": "electron/main.cjs",
@@ -8,11 +10,82 @@
     "dev": "concurrently -k \"vite\" \"wait-on tcp:5173 && cross-env VITE_DEV=1 electron .\"",
     "build": "vite build",
     "build:electron": "esbuild electron/main.ts --bundle --platform=node --external:electron --outfile=electron/main.cjs && esbuild electron/preload.ts --bundle --platform=node --external:electron --outfile=electron/preload.cjs",
+    "build:backend": "node scripts/build-backend.mjs",
+    "build:backend:win:x64": "cross-env NEXMOL_TARGET_PLATFORM=win32 NEXMOL_TARGET_ARCH=x64 node scripts/build-backend.mjs",
+    "package:mac:app": "npm run build && npm run build:electron && npm run build:backend && electron-builder --mac dir --arm64",
+    "notarize:mac": "node scripts/notarize-mac.mjs submit",
+    "notarize:mac:resume": "node scripts/notarize-mac.mjs resume",
+    "package:mac:dmg": "electron-builder --mac dmg --arm64 --prepackaged release/mac-arm64/NexMol.app",
+    "package:mac": "npm run package:mac:app && npm run notarize:mac && npm run package:mac:dmg",
+    "package:win:dir": "npm run build && npm run build:electron && npm run build:backend:win:x64 && electron-builder --win dir --x64",
+    "package:win": "npm run build && npm run build:electron && npm run build:backend:win:x64 && electron-builder --win nsis --x64",
     "preview": "vite preview",
     "test:parser": "rimraf .tmp-tests && tsc -p tsconfig.test.json && node --test .tmp-tests/ui/lib/*.test.js"
   },
+  "build": {
+    "appId": "com.nexmol.app",
+    "productName": "NexMol",
+    "directories": {
+      "output": "release",
+      "buildResources": "build-resources"
+    },
+    "icon": "src/assets/nexmol-app-icon-square.png",
+    "files": [
+      "dist/**",
+      "electron/**/*.cjs",
+      "package.json"
+    ],
+    "mac": {
+      "artifactName": "${productName}-${version}-${arch}.${ext}",
+      "category": "public.app-category.education",
+      "identity": "VARUN VINOD SHARMA (F55D2MWZ4L)",
+      "hardenedRuntime": true,
+      "gatekeeperAssess": false,
+      "icon": "src/assets/nexmol-app-icon-square.png",
+      "extraResources": [
+        {
+          "from": "build/backend-dist/darwin-${arch}/nexmol-backend",
+          "to": "backend",
+          "filter": [
+            "**/*",
+            "!*.pyc"
+          ]
+        }
+      ],
+      "target": [
+        "dmg",
+        "dir"
+      ]
+    },
+    "win": {
+      "artifactName": "NexMol-${version}-win-${arch}.${ext}",
+      "icon": "build-resources/icon.ico",
+      "extraResources": [
+        {
+          "from": "build/backend-dist/win32-${arch}/nexmol-backend",
+          "to": "backend",
+          "filter": [
+            "**/*",
+            "!*.pyc"
+          ]
+        }
+      ],
+      "target": [
+        "nsis"
+      ]
+    },
+    "dmg": {
+      "sign": false
+    },
+    "nsis": {
+      "oneClick": false,
+      "perMachine": false,
+      "allowToChangeInstallationDirectory": true
+    }
+  },
   "dependencies": {
     "lucide-react": "0.539.0",
+    "molstar": "^4.18.0",
     "react": "18.2.0",
     "react-dom": "18.2.0",
     "zustand": "4.5.2"
@@ -26,6 +99,7 @@
     "concurrently": "9.0.1",
     "cross-env": "7.0.3",
     "electron": "31.3.0",
+    "electron-builder": "^24.13.3",
     "esbuild": "0.23.0",
     "postcss": "8.4.38",
     "rimraf": "6.0.1",

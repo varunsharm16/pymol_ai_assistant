@@ -8,21 +8,21 @@ type Props = {
 
 const STEPS = [
   {
-    title: 'How It Works',
+    title: 'Welcome to NexMol',
     body:
-      'PyMOL runs the scene. The Electron app is your control surface. Type ai in PyMOL first, then use this app to send one action at a time.',
+      'NexMol is your AI-powered molecular visualization assistant. Load a structure via the Molecules panel, then use natural language to control the 3D viewer.',
     icon: MessageSquareText,
   },
   {
     title: 'Check Status First',
     body:
-      'Before starting work, open Status and run the system check. Make sure the bridge is reachable, the PyMOL plugin is connected, and your API key is valid.',
+      'Before starting work, open Status and run the system check. Make sure the backend is reachable and your API key is valid.',
     icon: Activity,
   },
   {
     title: 'Prompting Tips',
     body:
-      'Use short single-action prompts. Quick Actions show the phrasing the parser understands best. If a selection tag appears above the prompt box, click it to reference the current residue or atom precisely.',
+      'Use short single-action prompts like "show ligand as sticks", "color chain A red", "clear selected label", or "show sequence". Quick Actions show the phrasing the deterministic parser understands best.',
     icon: KeyRound,
   },
 ];

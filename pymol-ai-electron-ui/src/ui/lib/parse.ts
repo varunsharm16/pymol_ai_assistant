@@ -1,13 +1,14 @@
 export type SelectionSpec =
   | { kind: 'all' }
-  | { kind: 'protein' }
-  | { kind: 'ligand' }
-  | { kind: 'water' }
-  | { kind: 'metals' }
-  | { kind: 'hydrogens' }
+  | { kind: 'protein'; chain?: string; object?: string }
+  | { kind: 'ligand'; chain?: string; object?: string }
+  | { kind: 'water'; chain?: string; object?: string }
+  | { kind: 'metals'; chain?: string; object?: string }
+  | { kind: 'hydrogens'; chain?: string; object?: string }
+  | { kind: 'active_selection' }
   | { kind: 'current_selection' }
   | { kind: 'chain'; chain: string; object?: string }
-  | { kind: 'residue'; residue: string; chain?: string; resi?: string; object?: string }
+  | { kind: 'residue'; residue: string; chain?: string; resi?: string; object?: string; allMatches?: boolean }
   | { kind: 'atom'; atom: string; residue?: string; chain?: string; resi?: string; object?: string }
   | { kind: 'object'; object: string };
 
@@ -101,6 +102,8 @@ const SEQUENCE_FORMAT_ALIASES: Record<string, string> = {
   chains: 'chain_identifiers',
 };
 
+const COLOR_VERBS = '(?:color|colour|make|turn|paint|highlight)';
+
 function clean(text: string) {
   return text
     .trim()
@@ -116,6 +119,9 @@ function normalizeResidue(value: string) {
   const letters = value.toUpperCase().replace(/[^A-Z]/g, '');
   if (FULL_RESIDUE_NAMES[letters]) {
     return FULL_RESIDUE_NAMES[letters];
+  }
+  if (letters.endsWith('S') && FULL_RESIDUE_NAMES[letters.slice(0, -1)]) {
+    return FULL_RESIDUE_NAMES[letters.slice(0, -1)];
   }
   if (letters.length === 1 && RES_MAP[letters]) {
     return RES_MAP[letters];
@@ -138,6 +144,16 @@ function parseTransparencyValue(value: string): number | null {
 function parseSequenceFormat(value: string | undefined): string | null {
   if (!value) return null;
   return SEQUENCE_FORMAT_ALIASES[clean(value).toLowerCase()] || null;
+}
+
+function normalizeScopedSimpleKind(value: string): 'protein' | 'ligand' | 'water' | 'metals' | 'hydrogens' | null {
+  const lower = value.trim().toLowerCase();
+  if (lower === 'protein') return 'protein';
+  if (lower === 'ligand') return 'ligand';
+  if (lower === 'water' || lower === 'waters' || lower === 'solvent') return 'water';
+  if (lower === 'metal' || lower === 'metals') return 'metals';
+  if (lower === 'hydrogen' || lower === 'hydrogens') return 'hydrogens';
+  return null;
 }
 
 function parseTarget(input: string, context?: SelectionTagContext | null): SelectionSpec | null {
@@ -176,8 +192,24 @@ function parseTarget(input: string, context?: SelectionTagContext | null): Selec
   if (['water', 'waters', 'water molecules', 'solvent'].includes(lower)) return { kind: 'water' };
   if (['metals', 'metal', 'metal atoms'].includes(lower)) return { kind: 'metals' };
   if (['hydrogen', 'hydrogens', 'hydrogen atoms'].includes(lower)) return { kind: 'hydrogens' };
-  if (['selection', 'current selection', 'selected', 'selected atoms', 'picked atoms'].includes(lower)) {
+  if (['current selection', 'current residue'].includes(lower)) {
     return { kind: 'current_selection' };
+  }
+  if (['selection', 'selected', 'selected atoms', 'picked atoms'].includes(lower)) {
+    return { kind: 'active_selection' };
+  }
+
+  const scopedSimple = text.match(
+    /^(protein|ligand|water|waters|solvent|metal|metals|hydrogen|hydrogens)(?:\s+in\s+chain\s+([A-Za-z]))?(?:\s+in\s+object\s+([A-Za-z0-9_.-]+))?$/i
+  );
+  if (scopedSimple) {
+    const kind = normalizeScopedSimpleKind(scopedSimple[1]);
+    if (!kind) return null;
+    return {
+      kind,
+      ...(scopedSimple[2] ? { chain: scopedSimple[2].toUpperCase() } : {}),
+      ...(scopedSimple[3] ? { object: scopedSimple[3] } : {}),
+    } as SelectionSpec;
   }
 
   const chain = text.match(/^chain\s+([A-Za-z])(?:\s+in\s+object\s+([A-Za-z0-9_.-]+))?$/i);
@@ -186,6 +218,36 @@ function parseTarget(input: string, context?: SelectionTagContext | null): Selec
       kind: 'chain',
       chain: chain[1].toUpperCase(),
       ...(chain[2] ? { object: chain[2] } : {}),
+    };
+  }
+
+  const allResidueShorthand = text.match(
+    /^all\s+([A-Za-z]{1,3}|[A-Za-z]+)(?:\s+in\s+chain\s+([A-Za-z]))?(?:\s+in\s+object\s+([A-Za-z0-9_.-]+))?$/i
+  );
+  if (allResidueShorthand) {
+    const normalized = normalizeResidue(allResidueShorthand[1]);
+    if (!normalized || normalized.length !== 3) return null;
+    return {
+      kind: 'residue',
+      residue: normalized,
+      allMatches: true,
+      ...(allResidueShorthand[2] ? { chain: allResidueShorthand[2].toUpperCase() } : {}),
+      ...(allResidueShorthand[3] ? { object: allResidueShorthand[3] } : {}),
+    };
+  }
+
+  const allResidues = text.match(
+    /^(?:all\s+)?([A-Za-z]{1,3}|[A-Za-z]+)\s+residues?(?:\s+in\s+chain\s+([A-Za-z]))?(?:\s+in\s+object\s+([A-Za-z0-9_.-]+))?$/i
+  );
+  if (allResidues) {
+    const normalized = normalizeResidue(allResidues[1]);
+    if (!normalized || normalized.length !== 3) return null;
+    return {
+      kind: 'residue',
+      residue: normalized,
+      allMatches: true,
+      ...(allResidues[2] ? { chain: allResidues[2].toUpperCase() } : {}),
+      ...(allResidues[3] ? { object: allResidues[3] } : {}),
     };
   }
 
@@ -243,9 +305,9 @@ export function parsePromptToSpec(input: string, options?: { selectionTag?: Sele
   }
 
   // Background
-  const bg = t.match(/(?:set\s+)?background|set\s+bg/i)
-    ? t.match(/(?:set\s+bg\s+to|set\s+background\s+to|background)\s+([a-z#0-9]+)/i)
-    : null;
+  const bg = t.match(
+    /^(?:set|make|turn|color|colour)\s+(?:the\s+)?(?:background|background color|bg)\s+(?:to\s+)?([a-z#0-9]+)$/i
+  );
   if (bg) return { name: 'set_background', arguments: { color: bg[1].toLowerCase() } };
 
   // Rotate
@@ -253,7 +315,9 @@ export function parsePromptToSpec(input: string, options?: { selectionTag?: Sele
   if (rot) return { name: 'rotate_view', arguments: { axis: rot[2].toUpperCase(), angle: Number(rot[1]) } };
 
   // Snapshot
-  const shot = t.match(/(?:save\s+)?snapshot(?:\s+(?:as|named|called))?(?:\s+(.+))?$/i);
+  const shot = t.match(
+    /^(?:save|take|capture|export)(?:\s+a)?(?:\s+png)?\s+(?:snapshot|picture|pic|image)(?:\s+(?:as|named|called))?(?:\s+(.+))?$/i
+  ) || t.match(/^(?:save\s+)?snapshot(?:\s+(?:as|named|called))?(?:\s+(.+))?$/i);
   if (shot) return { name: 'snapshot', arguments: { filename: (shot[1] || '').trim() } };
 
   // Sequence view
@@ -276,6 +340,11 @@ export function parsePromptToSpec(input: string, options?: { selectionTag?: Sele
     }
   }
 
+  // Measurement clearing
+  if (/^(?:remove|clear)\s+(?:distance\s+)?measurements?$/i.test(t) || /^(?:remove|clear)\s+distances?$/i.test(t)) {
+    return { name: 'clear_measurements', arguments: {} };
+  }
+
   // Distance measurement
   if (/^measure distance between selected$/i.test(t)) {
     return {
@@ -294,6 +363,14 @@ export function parsePromptToSpec(input: string, options?: { selectionTag?: Sele
       if (resolvedSource && target) {
         return { name: 'measure_distance', arguments: { source: resolvedSource, target } };
       }
+    }
+  }
+  const measureFromTo = t.match(/^measure(?:\s+the)?\s+distance\s+from\s+(.+?)\s+to\s+(.+)$/i);
+  if (measureFromTo) {
+    const source = parseTarget(measureFromTo[1], selectionTag);
+    const target = parseTarget(measureFromTo[2], selectionTag);
+    if (source && target) {
+      return { name: 'measure_distance', arguments: { source, target } };
     }
   }
 
@@ -349,14 +426,75 @@ export function parsePromptToSpec(input: string, options?: { selectionTag?: Sele
       };
     }
   }
+  const fadeTransparency = t.match(
+    /^(?:fade|make)\s+([a-z]+)\s+(?:on|for)\s+(.+?)\s+(?:to\s+)?([0-9.]+%?)\s+transparent$/i
+  );
+  if (fadeTransparency) {
+    const representation = parseRepresentation(fadeTransparency[1]);
+    const target = parseTarget(fadeTransparency[2], selectionTag);
+    const value = parseTransparencyValue(fadeTransparency[3]);
+    if (representation && target && value != null) {
+      return {
+        name: 'set_transparency',
+        arguments: { representation, target, value },
+      };
+    }
+  }
+  const makeTransparent = t.match(
+    /^(?:make|set)\s+(.+?)\s+([a-z]+)\s+transparent(?:\s+to)?\s+([0-9.]+%?)$/i
+  );
+  if (makeTransparent) {
+    const target = parseTarget(makeTransparent[1], selectionTag);
+    const representation = parseRepresentation(makeTransparent[2]);
+    const value = parseTransparencyValue(makeTransparent[3]);
+    if (target && representation && value != null) {
+      return {
+        name: 'set_transparency',
+        arguments: { representation, target, value },
+      };
+    }
+  }
 
   // Labeling
+  const labelAllResiduesInChain = t.match(/^label\s+all\s+residues?\s+in\s+chain\s+([A-Za-z])$/i);
+  if (labelAllResiduesInChain) {
+    return {
+      name: 'label_selection',
+      arguments: {
+        target: { kind: 'chain', chain: labelAllResiduesInChain[1].toUpperCase() },
+        mode: 'residue',
+      },
+    };
+  }
+  const labelChainResidues = t.match(/^label\s+chain\s+([A-Za-z])\s+residues?$/i);
+  if (labelChainResidues) {
+    return {
+      name: 'label_selection',
+      arguments: {
+        target: { kind: 'chain', chain: labelChainResidues[1].toUpperCase() },
+        mode: 'residue',
+      },
+    };
+  }
   const labelResidues = t.match(/^label\s+residues?(?:\s+in\s+chain\s+([A-Za-z]))?$/i);
   if (labelResidues) {
     const target = labelResidues[1]
       ? ({ kind: 'chain', chain: labelResidues[1].toUpperCase() } as const)
       : ({ kind: 'protein' } as const);
     return { name: 'label_selection', arguments: { target, mode: 'residue' } };
+  }
+  if (/^(?:remove|clear)\s+selected\s+labels?$/i.test(t) || /^(?:remove|clear)\s+labels?\s+on\s+selected$/i.test(t)) {
+    return { name: 'clear_labels', arguments: { target: { kind: 'active_selection' } } };
+  }
+  const clearLabelsOnTarget = t.match(/^(?:remove|clear)\s+labels?\s+(?:on|for)\s+(.+)$/i);
+  if (clearLabelsOnTarget) {
+    const target = parseTarget(clearLabelsOnTarget[1], selectionTag);
+    if (target) {
+      return { name: 'clear_labels', arguments: { target } };
+    }
+  }
+  if (/^(?:remove|clear)\s+labels$/i.test(t)) {
+    return { name: 'clear_labels', arguments: {} };
   }
   const labelTarget = t.match(/^label\s+(.+)$/i);
   if (labelTarget) {
@@ -374,11 +512,6 @@ export function parsePromptToSpec(input: string, options?: { selectionTag?: Sele
   if (zoom) {
     const target = parseTarget(zoom[1], selectionTag);
     if (target) return { name: 'zoom_selection', arguments: { target } };
-  }
-  const orient = t.match(/^orient\s+(?:to|on)?\s*(.+)$/i);
-  if (orient) {
-    const target = parseTarget(orient[1], selectionTag);
-    if (target) return { name: 'orient_selection', arguments: { target } };
   }
 
   // Isolate / hide-everything-except
@@ -415,6 +548,14 @@ export function parsePromptToSpec(input: string, options?: { selectionTag?: Sele
       return { name: 'show_representation', arguments: { target, representation } };
     }
   }
+  const showRepOnTarget = t.match(/^(?:show|display)\s+([a-z]+)\s+(?:on|for)\s+(.+)$/i);
+  if (showRepOnTarget) {
+    const representation = parseRepresentation(showRepOnTarget[1]);
+    const target = parseTarget(showRepOnTarget[2], selectionTag);
+    if (representation && target) {
+      return { name: 'show_representation', arguments: { target, representation } };
+    }
+  }
   const showTargetRep = t.match(/^show\s+(.+?)\s+(?:representation\s+)?(?:of\s+)?(?:the\s+)?([a-z]+)$/i);
   if (showTargetRep) {
     const target = parseTarget(showTargetRep[2], selectionTag);
@@ -441,10 +582,18 @@ export function parsePromptToSpec(input: string, options?: { selectionTag?: Sele
       return { name: 'hide_representation', arguments: { target, representation } };
     }
   }
+  const hideRepOfTarget = t.match(/^hide\s+([a-z]+)\s+(?:representation\s+)?(?:of|for)\s+(.+)$/i);
+  if (hideRepOfTarget) {
+    const target = parseTarget(hideRepOfTarget[2], selectionTag);
+    const representation = parseRepresentation(hideRepOfTarget[1]);
+    if (target && representation) {
+      return { name: 'hide_representation', arguments: { target, representation } };
+    }
+  }
 
   // Generic color commands
   const residueFamilyColor = t.match(
-    /^(?:color|colour)\s+(?:all\s+)?(.+?)\s+residues?(?:\s+in\s+chain\s+([A-Za-z]))?\s+([a-z#0-9]+)$/i
+    new RegExp(`^${COLOR_VERBS}\\s+(?:all\\s+)?(.+?)\\s+residues?(?:\\s+in\\s+chain\\s+([A-Za-z]))?\\s+(?:to\\s+)?([a-z#0-9]+)$`, 'i')
   );
   if (residueFamilyColor) {
     const residueName = normalizeResidue(residueFamilyColor[1]);
@@ -463,8 +612,8 @@ export function parsePromptToSpec(input: string, options?: { selectionTag?: Sele
     }
   }
 
-  const all = t.match(/color\s+all\s+([a-z#0-9]+)/i);
-  const allChains = t.match(/^(?:color|colour)\s+all\s+chains\s+([a-z#0-9]+)$/i);
+  const all = t.match(new RegExp(`^${COLOR_VERBS}\\s+all\\s+(?:to\\s+)?([a-z#0-9]+)$`, 'i'));
+  const allChains = t.match(new RegExp(`^${COLOR_VERBS}\\s+all\\s+chains\\s+(?:to\\s+)?([a-z#0-9]+)$`, 'i'));
   if (allChains) {
     return {
       name: 'color_selection',
@@ -473,7 +622,7 @@ export function parsePromptToSpec(input: string, options?: { selectionTag?: Sele
   }
   if (all) return { name: 'color_selection', arguments: { target: { kind: 'all' }, color: all[1].toLowerCase() } };
 
-  const chain = t.match(/color\s+chain\s+([A-Za-z])\s+([a-z#0-9]+)/i);
+  const chain = t.match(new RegExp(`^${COLOR_VERBS}\\s+chain\\s+([A-Za-z])\\s+(?:to\\s+)?([a-z#0-9]+)$`, 'i'));
   if (chain) {
     return {
       name: 'color_selection',
@@ -481,7 +630,7 @@ export function parsePromptToSpec(input: string, options?: { selectionTag?: Sele
     };
   }
 
-  const residue = t.match(/color\s+([A-Za-z]{1,3})\s+([a-z#0-9]+)(?:.*chain\s+([A-Za-z]))?/i);
+  const residue = t.match(new RegExp(`^${COLOR_VERBS}\\s+([A-Za-z]{1,3})\\s+(?:to\\s+)?([a-z#0-9]+)(?:.*chain\\s+([A-Za-z]))?$`, 'i'));
   if (residue) {
     return {
       name: 'color_selection',
@@ -496,7 +645,7 @@ export function parsePromptToSpec(input: string, options?: { selectionTag?: Sele
     };
   }
 
-  const genericColor = t.match(/(?:color|colour)\s+(.+?)\s+([a-z#0-9]+)$/i);
+  const genericColor = t.match(new RegExp(`^${COLOR_VERBS}\\s+(.+?)\\s+(?:to\\s+)?([a-z#0-9]+)$`, 'i'));
   if (genericColor) {
     const target = parseTarget(genericColor[1], selectionTag);
     if (target) {

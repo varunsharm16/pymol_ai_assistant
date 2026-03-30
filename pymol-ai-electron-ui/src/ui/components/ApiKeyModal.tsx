@@ -62,7 +62,7 @@ const ApiKeyModal: React.FC<Props> = ({ open, onClose }) => {
           </div>
         </div>
 
-        <h2 className="text-xl font-semibold text-center mb-2">Welcome to PyMOL AI Assistant</h2>
+        <h2 className="text-xl font-semibold text-center mb-2">Welcome to NexMol</h2>
         <p className="text-sm text-neutral-400 text-center mb-6">
           Enter your OpenAI API key to enable AI-powered commands.
           <br />

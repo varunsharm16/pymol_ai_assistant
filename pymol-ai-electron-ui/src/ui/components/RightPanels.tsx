@@ -1,19 +1,14 @@
 import React from 'react';
 import { useStore } from '../store';
 import { Button } from './Button';
-import { Copy, Save, FolderOpen, Plus } from 'lucide-react';
+import { Copy, Plus, Save, FolderOpen } from 'lucide-react';
 import SettingsPanel from './SettingsPanel';
 import HealthCheckPanel from './HealthCheckPanel';
 import MoleculePanel from './MoleculePanel';
-import { saveProject, getRecentProjects } from '../lib/bridge';
+import { PromptLog } from './PromptLog';
+import { PromptInput } from './PromptInput';
+import { saveProject, loadProject, getRecentProjects, fetchStructureData, readStructureFile } from '../lib/bridge';
 import ConfirmDialog from './ConfirmDialog';
-import {
-  createBlankProjectFlow,
-  deleteProjectFlow,
-  isTerminalProjectActionError,
-  openProjectFlow,
-  switchProjectFlow,
-} from '../lib/projectSync';
 
 export const RightPanels: React.FC = () => {
   const panel = useStore((s) => s.ui.rightPanel);
@@ -29,6 +24,7 @@ export const RightPanels: React.FC = () => {
       } overflow-hidden`}
     >
       {panel === 'projects' && <ProjectsPanel />}
+      {panel === 'chat' && <ChatPanel />}
       {panel === 'notepad' && <NotePadPanel notes={notes} onChange={setNotes} />}
       {panel === 'toolbox' && <ToolBoxPanel />}
       {panel === 'help' && <HelpPanel />}
@@ -45,6 +41,16 @@ const SectionTitle: React.FC<{ children: React.ReactNode }> = ({ children }) => 
   </div>
 );
 
+const ChatPanel: React.FC = () => (
+  <div className="h-full flex flex-col bg-[#171717]">
+    <SectionTitle>Chat</SectionTitle>
+    <div className="min-h-0 flex-1 flex flex-col">
+      <PromptLog />
+      <PromptInput />
+    </div>
+  </div>
+);
+
 /* ------------------------------------------------------------------ */
 /*  Projects Panel                                                    */
 /* ------------------------------------------------------------------ */
@@ -57,15 +63,20 @@ const ProjectsPanel: React.FC = () => {
   const logs = useStore((s) => s.logs);
   const addLog = useStore((s) => s.addLog);
   const projectMolecules = useStore((s) => s.projectMolecules);
-  const recentProjects = useStore((s) => s.recentProjects);
-  const setRecentProjects = useStore((s) => s.setRecentProjects);
-  const switchingProject = useStore((s) => s.switchingProject);
+  const projectStructures = useStore((s) => s.projectStructures);
+  const projectViewerStates = useStore((s) => s.projectViewerStates);
+  const selectProject = useStore((s) => s.selectProject);
+  const createProject = useStore((s) => s.createProject);
+  const deleteProject = useStore((s) => s.deleteProject);
+  const hydrateProject = useStore((s) => s.hydrateProjectFromLoadedFile);
+  const notes = useStore((s) => s.notes);
 
   const [hoverId, setHoverId] = React.useState<string | null>(null);
   const [menuId, setMenuId] = React.useState<string | null>(null);
   const [renameId, setRenameId] = React.useState<string | null>(null);
   const [saving, setSaving] = React.useState(false);
   const [deleteId, setDeleteId] = React.useState<string | null>(null);
+  const [recentProjects, setRecentProjects] = React.useState<Array<{ name: string; path: string; saved_at: string }>>([]);
   const inputRef = React.useRef<HTMLInputElement>(null);
 
   React.useEffect(() => {
@@ -96,10 +107,12 @@ const ProjectsPanel: React.FC = () => {
     if (!window.api?.showSaveDialog) return;
     const proj = projects.find((p) => p.id === current);
     const currentMolecule = projectMolecules[current] || {};
+    const currentStructure = projectStructures[current];
+    const currentViewerState = projectViewerStates[current];
     const res = await window.api.showSaveDialog({
       title: 'Save Project',
-      defaultPath: `${proj?.name || 'project'}.pymolai`,
-      filters: [{ name: 'PyMOL AI Project', extensions: ['pymolai'] }],
+      defaultPath: `${proj?.name || 'project'}.nexmol`,
+      filters: [{ name: 'NexMol Project', extensions: ['nexmol'] }],
     });
     if (!res || res.canceled || !res.filePath) return;
 
@@ -108,9 +121,21 @@ const ProjectsPanel: React.FC = () => {
     const result = await saveProject({
       path: res.filePath,
       name: proj?.name || 'Untitled',
-      commands: projectLogs.map((l) => ({ prompt: l.prompt, ts: l.ts, status: l.status })),
+      commands: projectLogs.map((l) => ({
+        prompt: l.prompt,
+        ts: l.ts,
+        status: l.status,
+        resolver: l.resolver,
+        normalized_spec: l.normalizedSpec,
+        diagnostic: l.diagnostic,
+      })),
+      notes: notes[current] || '',
       pdb_id: currentMolecule.pdbId,
       molecule_path: currentMolecule.filePath,
+      structure_data: currentStructure?.data,
+      structure_format: currentStructure?.format,
+      object_name: currentStructure?.objectName,
+      viewer_state: currentViewerState,
     });
     setSaving(false);
 
@@ -118,7 +143,7 @@ const ProjectsPanel: React.FC = () => {
       addLog({ prompt: 'Save project', status: 'success', message: `Saved to ${result.path}` });
       getRecentProjects().then(setRecentProjects).catch(() => {});
     } else {
-      addLog({ prompt: 'Save project', status: 'error', message: ('error' in result && result.error) || 'Failed' });
+      addLog({ prompt: 'Save project', status: 'error', message: result.error || 'Failed' });
     }
   };
 
@@ -128,17 +153,73 @@ const ProjectsPanel: React.FC = () => {
       if (!window.api?.showOpenDialog) return;
       const res = await window.api.showOpenDialog({
         title: 'Open Project',
-        filters: [{ name: 'PyMOL AI Project', extensions: ['pymolai'] }],
+        filters: [{ name: 'NexMol Project', extensions: ['nexmol'] }],
         properties: ['openFile'],
       });
       if (!res || res.canceled || !res.filePaths?.length) return;
       filePath = res.filePaths[0];
     }
-    const result = await openProjectFlow(filePath!);
-    if (result.ok && result.metadata) {
-      addLog({ prompt: 'Load project', status: 'success', message: `Loaded: ${result.metadata.name}` });
-    } else if (isTerminalProjectActionError('error' in result ? result.error : undefined)) {
-      addLog({ prompt: 'Load project', status: 'error', message: ('error' in result && result.error) || 'Failed' });
+
+    const result = await loadProject(filePath!);
+    if (result.ok && result.data) {
+      const d = result.data;
+      let structure = d.structure_data && d.structure_format
+        ? {
+            data: d.structure_data,
+            format: d.structure_format,
+            objectName: d.object_name || d.pdb_id || d.name,
+          }
+        : undefined;
+
+      if (!structure && d.molecule_path) {
+        const fileResult = await readStructureFile(d.molecule_path);
+        if (fileResult.ok && fileResult.data) {
+          structure = {
+            data: fileResult.data,
+            format: fileResult.format || 'pdb',
+            objectName: d.object_name || d.name || fileResult.name,
+          };
+        }
+      }
+
+      if (!structure && d.pdb_id) {
+        const fetchResult = await fetchStructureData(d.pdb_id);
+        if (fetchResult.ok && fetchResult.data) {
+          structure = {
+            data: fetchResult.data,
+            format: fetchResult.format || 'pdb',
+            objectName: d.object_name || d.pdb_id,
+          };
+        }
+      }
+
+      const projectId = hydrateProject({
+        name: d.name || 'Loaded Project',
+        logs: (d.commands || []).map((c: any) => ({
+          prompt: c.prompt,
+          ts: c.ts,
+          status: c.status || 'success',
+          message: '',
+          resolver: c.resolver,
+          normalizedSpec: c.normalized_spec,
+          diagnostic: c.diagnostic,
+        })),
+        notes: d.notes,
+        molecule: { pdbId: d.pdb_id, filePath: d.molecule_path },
+        structure,
+        viewerState: d.viewer_state,
+      });
+      selectProject(projectId);
+      addLog({
+        prompt: 'Open project',
+        status: structure || (!d.pdb_id && !d.molecule_path) ? 'success' : 'error',
+        message: structure
+          ? `Loaded: ${d.name}`
+          : `Loaded metadata for ${d.name}, but the structure could not be restored.`,
+      });
+      getRecentProjects().then(setRecentProjects).catch(() => {});
+    } else {
+      addLog({ prompt: 'Open project', status: 'error', message: result.error || 'Failed' });
     }
   };
 
@@ -149,32 +230,20 @@ const ProjectsPanel: React.FC = () => {
       {/* Save / Open buttons */}
       <div className="flex gap-2 px-3 py-2">
         <button
-          onClick={() => {
-            createBlankProjectFlow('New Project').then((result) => {
-              if (!result.ok && isTerminalProjectActionError('error' in result ? result.error : undefined)) {
-                addLog({
-                  prompt: 'Create project',
-                  status: 'error',
-                  message: ('error' in result && result.error) || 'Failed to create project',
-                });
-              }
-            });
-          }}
-          disabled={switchingProject}
-          className="h-8 rounded-full bg-neutral-700 hover:bg-neutral-600 px-3 text-sm flex items-center justify-center gap-1.5 disabled:opacity-40"
+          onClick={() => createProject('New Project')}
+          className="h-8 rounded-full bg-neutral-700 hover:bg-neutral-600 px-3 text-sm flex items-center justify-center gap-1.5"
         >
           <Plus className="w-3.5 h-3.5" /> New
         </button>
         <button
           onClick={onSave}
-          disabled={saving || switchingProject}
+          disabled={saving}
           className="flex-1 h-8 rounded-full bg-brand hover:bg-brandHover text-black text-sm font-medium flex items-center justify-center gap-1.5 disabled:opacity-40"
         >
           <Save className="w-3.5 h-3.5" /> {saving ? 'Saving…' : 'Save'}
         </button>
         <button
           onClick={() => onOpen()}
-          disabled={switchingProject}
           className="flex-1 h-8 rounded-full bg-neutral-700 hover:bg-neutral-600 text-sm flex items-center justify-center gap-1.5"
         >
           <FolderOpen className="w-3.5 h-3.5" /> Open
@@ -210,20 +279,10 @@ const ProjectsPanel: React.FC = () => {
               if (menuId !== p.id) setHoverId(null);
             }}
             className={`relative flex items-center justify-between px-3 py-2 rounded-3xl cursor-default
-              ${p.id === current ? 'bg-neutral-900' : 'hover:bg-neutral-900/60'} ${
-                switchingProject ? 'opacity-60' : ''
-              }`}
+              ${p.id === current ? 'bg-neutral-900' : 'hover:bg-neutral-900/60'}`}
             onClick={() => {
-              if (renameId === p.id || switchingProject) return;
-              switchProjectFlow(p.id).then((result) => {
-                if (!result.ok && isTerminalProjectActionError('error' in result ? result.error : undefined)) {
-                  addLog({
-                    prompt: 'Switch project',
-                    status: 'error',
-                    message: ('error' in result && result.error) || 'Failed to switch project',
-                  });
-                }
-              });
+              if (renameId === p.id) return;
+              selectProject(p.id);
             }}
           >
             <div className="truncate pr-2">
@@ -280,7 +339,7 @@ const ProjectsPanel: React.FC = () => {
       <ConfirmDialog
         open={deleteId !== null}
         title="Delete project?"
-        body="This removes the selected project and its local logs, notes, molecule badge, and in-memory session snapshot."
+        body="This removes the selected project and its local logs, notes, and molecule info."
         confirmLabel="Delete Project"
         destructive
         onCancel={() => setDeleteId(null)}
@@ -288,15 +347,8 @@ const ProjectsPanel: React.FC = () => {
           const id = deleteId;
           setDeleteId(null);
           if (!id) return;
-          deleteProjectFlow(id).then((result) => {
-            if (!result.ok && isTerminalProjectActionError('error' in result ? result.error : undefined)) {
-              addLog({
-                prompt: 'Delete project',
-                status: 'error',
-                message: ('error' in result && result.error) || 'Failed to delete project',
-              });
-            }
-          });
+          deleteProject(id);
+          addLog({ prompt: 'Delete project', status: 'success', message: 'Project deleted.' });
         }}
       />
     </div>
@@ -412,28 +464,22 @@ const ToolBoxPanel: React.FC = () => {
           desc: 'Label residues or atoms within a target.',
           examples: ['Label residues in chain A', 'Label ligand'],
         },
+        {
+          key: 'clear_labels',
+          label: 'Clear Labels',
+          desc: 'Remove active labels from the viewer.',
+          examples: ['Clear labels', 'Clear selected label'],
+        },
       ],
     },
     {
       title: 'Focus & Navigation',
       functions: [
         {
-          key: 'show_sequence_view',
-          label: 'Sequence View',
-          desc: 'Toggle PyMOL’s built-in sequence bar and switch between common display formats.',
-          examples: ['Show sequence', 'Show sequence as residue names', 'Hide sequence'],
-        },
-        {
           key: 'zoom_selection',
           label: 'Zoom Target',
           desc: 'Center the camera on a target.',
           examples: ['Zoom to ligand', 'Center on chain A'],
-        },
-        {
-          key: 'orient_selection',
-          label: 'Orient Target',
-          desc: 'Reorient the scene around a target.',
-          examples: ['Orient on chain B', 'Orient on ligand'],
         },
         {
           key: 'rotate_view',
@@ -450,18 +496,24 @@ const ToolBoxPanel: React.FC = () => {
           key: 'measure_distance',
           label: 'Measure Distance',
           desc: 'Create a distance object between two targets.',
-          examples: ['Measure distance between ligand and residue ASP in chain B'],
+          examples: ['Measure distance between ligand and residue ASP in chain B', 'Measure distance between selected'],
+        },
+        {
+          key: 'show_sequence_view',
+          label: 'Sequence View',
+          desc: 'Open the Mol* sequence view and sync sequence clicks with viewer selection.',
+          examples: ['Show sequence', 'Show sequence as residue codes', 'Hide sequence'],
         },
         {
           key: 'show_contacts',
-          label: 'Show Polar Contacts',
-          desc: 'Display polar contact distances between two targets.',
+          label: 'Show Polar Contacts (Staged)',
+          desc: 'Planned NexMol feature. Prompt support is preserved, but execution still needs backend contact calculation.',
           examples: ['Show polar contacts between ligand and residue ASP in chain B'],
         },
         {
           key: 'align_objects',
-          label: 'Align Objects',
-          desc: 'Align one named object to another.',
+          label: 'Align Objects (Staged)',
+          desc: 'Planned NexMol feature. Prompt support is preserved, but execution still needs backend alignment support.',
           examples: ['Align object ligand_pose to object receptor'],
         },
         {
@@ -544,19 +596,18 @@ const HelpPanel: React.FC = () => (
     <div className="p-4 space-y-3 text-sm">
       <div className="rounded-xl bg-neutral-900 p-3 text-neutral-300">
         One action per prompt. Supported targets include protein, ligand, water, metals, hydrogens,
-        chain, residue, object, current selection, and all atoms.
+        chain, residue, and all atoms.
       </div>
       <div className="rounded-xl bg-neutral-900 p-3 text-neutral-300">
         Supported representations: cartoon, sticks, surface, spheres, lines, mesh, and dots.
       </div>
       <div className="rounded-xl bg-neutral-900 p-3 text-neutral-300">
-        The current PyMOL selection appears as a tag above the prompt box. Click it to insert a reference like
-        <span className="mx-1 rounded bg-black/40 px-1 py-0.5 text-brand">@A:ALA21</span>
-        into your prompt.
+        Load a structure using the Molecules panel, then use short single-action prompts like
+        &nbsp;&quot;show ligand as sticks&quot; or &quot;color chain A red&quot;.
       </div>
       <div className="rounded-xl bg-neutral-900 p-3 text-neutral-300">
-        Built-in sequence view is available through prompts like <span className="text-neutral-100">Show sequence</span> or
-        <span className="text-neutral-100"> Show sequence as residue names</span>.
+        Sequence view is now available from the toolbar or prompts like &quot;show sequence&quot;.
+        Contacts and alignment remain staged.
       </div>
       <a
         className="block px-3 py-2 rounded-xl hover:bg-[#1F1F1F]"

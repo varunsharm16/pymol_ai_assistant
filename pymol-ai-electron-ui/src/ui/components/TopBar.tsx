@@ -7,7 +7,7 @@ const TopBar: React.FC = () => {
   );
 
   return (
-    <div className="app-drag px-3 pt-6 select-none">
+    <div className="app-drag relative px-3 pt-6 select-none">
       {/* Title row */}
       <div className="flex items-center">
         <div className="text-xl font-semibold tracking-tight truncate">
@@ -19,7 +19,7 @@ const TopBar: React.FC = () => {
         {/* Version badge */}
         <div className="app-no-drag flex items-center gap-3">
           <span className="text-xs text-neutral-500 rounded-full border border-neutral-700 px-2.5 py-1">
-            v0.1.0-alpha
+            v0.2.0-alpha
           </span>
         </div>
       </div>

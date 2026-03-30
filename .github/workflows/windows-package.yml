@@ -1,0 +1,131 @@
+name: Windows Package
+
+on:
+  workflow_dispatch:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+
+jobs:
+  package-windows:
+    runs-on: windows-latest
+    defaults:
+      run:
+        shell: pwsh
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "18"
+          cache: npm
+          cache-dependency-path: pymol-ai-electron-ui/package-lock.json
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install backend dependencies
+        working-directory: pymol-bridge
+        run: |
+          python -m venv .venv
+          .\.venv\Scripts\python -m pip install --upgrade pip
+          .\.venv\Scripts\python -m pip install -r requirements.txt
+          .\.venv\Scripts\python -m pip install -r requirements-build.txt
+
+      - name: Install Electron dependencies
+        working-directory: pymol-ai-electron-ui
+        run: npm ci
+
+      - name: Build unpacked Windows app
+        working-directory: pymol-ai-electron-ui
+        run: npm run package:win:dir
+
+      - name: Smoke-check packaged backend
+        working-directory: pymol-ai-electron-ui
+        run: |
+          $backend = Join-Path $PWD "release\win-unpacked\resources\backend\nexmol-backend.exe"
+          if (-not (Test-Path $backend)) {
+            throw "Expected packaged backend at $backend"
+          }
+
+          $stdout = Join-Path $env:RUNNER_TEMP "nexmol-backend.stdout.log"
+          $stderr = Join-Path $env:RUNNER_TEMP "nexmol-backend.stderr.log"
+          New-Item -ItemType File -Path $stdout -Force | Out-Null
+          New-Item -ItemType File -Path $stderr -Force | Out-Null
+
+          $proc = Start-Process -FilePath $backend `
+            -WorkingDirectory (Split-Path $backend) `
+            -RedirectStandardOutput $stdout `
+            -RedirectStandardError $stderr `
+            -PassThru
+
+          $ready = $false
+          $deadline = (Get-Date).AddSeconds(30)
+
+          try {
+            while ((Get-Date) -lt $deadline) {
+              Start-Sleep -Milliseconds 500
+
+              if ($proc.HasExited) {
+                break
+              }
+
+              $stdoutContent = Get-Content $stdout -Raw
+              if ($stdoutContent -match 'NEXMOL_PORT=\d+') {
+                $ready = $true
+                break
+              }
+            }
+          } finally {
+            if (-not $proc.HasExited) {
+              Stop-Process -Id $proc.Id -Force
+            }
+          }
+
+          if (-not $ready) {
+            $stdoutContent = Get-Content $stdout -Raw
+            $stderrContent = Get-Content $stderr -Raw
+            throw "Backend smoke check failed.`nstdout:`n$stdoutContent`n`nstderr:`n$stderrContent"
+          }
+
+      - name: Build NSIS installer
+        working-directory: pymol-ai-electron-ui
+        run: npm run package:win
+
+      - name: Upload Windows artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: nexmol-windows-x64
+          path: |
+            pymol-ai-electron-ui/release/*.exe
+            pymol-ai-electron-ui/release/*.blockmap
+            pymol-ai-electron-ui/release/*.yml
+          if-no-files-found: error
+
+      - name: Publish Windows assets to GitHub Releases
+        if: startsWith(github.ref, 'refs/tags/')
+        working-directory: pymol-ai-electron-ui
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $tag = $env:GITHUB_REF_NAME
+          $files = Get-ChildItem -Path release -File | Where-Object { $_.Extension -in '.exe', '.blockmap', '.yml' } | ForEach-Object { $_.FullName }
+
+          if (-not $files -or $files.Count -eq 0) {
+            throw "No Windows release assets found in $PWD\release"
+          }
+
+          gh release view $tag --repo $env:GITHUB_REPOSITORY *> $null
+          if ($LASTEXITCODE -eq 0) {
+            gh release upload $tag $files --repo $env:GITHUB_REPOSITORY --clobber
+          } else {
+            gh release create $tag $files --repo $env:GITHUB_REPOSITORY --title $tag --generate-notes
+          }

@@ -13,6 +13,11 @@ function extensionLabel(format: ExportFormat) {
   return 'DOCX';
 }
 
+function specSummary(spec?: { name: string; arguments?: Record<string, any> }) {
+  if (!spec) return '';
+  return spec.name.replace(/_/g, ' ');
+}
+
 export const PromptLog: React.FC = () => {
   const currentId = useStore((s) => s.currentProjectId);
   const project = useStore((s) => s.projects.find((entry) => entry.id === s.currentProjectId));
@@ -23,6 +28,7 @@ export const PromptLog: React.FC = () => {
   const [confirmClear, setConfirmClear] = React.useState(false);
   const [actionError, setActionError] = React.useState('');
   const menuRef = React.useRef<HTMLDivElement>(null);
+  const bodyRef = React.useRef<HTMLDivElement>(null);
 
   React.useEffect(() => {
     const onClick = (e: MouseEvent) => {
@@ -31,6 +37,12 @@ export const PromptLog: React.FC = () => {
     window.addEventListener('click', onClick);
     return () => window.removeEventListener('click', onClick);
   }, []);
+
+  React.useEffect(() => {
+    const body = bodyRef.current;
+    if (!body) return;
+    body.scrollTop = body.scrollHeight;
+  }, [logs.length]);
 
   const handleExport = async (format: ExportFormat) => {
     setActionError('');
@@ -50,7 +62,7 @@ export const PromptLog: React.FC = () => {
   };
 
   return (
-    <div className="relative flex flex-col gap-1.5 overflow-auto h-[56vh] md:h-[52vh] bg-[#171717]">
+    <div className="relative min-h-0 flex-1 flex flex-col bg-[#171717]">
       <div className="sticky top-0 z-30">
         <div className="relative">
           <div className="relative z-20 flex items-center justify-between px-3 py-2 bg-[#171717]/70 backdrop-blur-md supports-[backdrop-filter]:bg-[#171717]/50">
@@ -114,7 +126,7 @@ export const PromptLog: React.FC = () => {
         </div>
       </div>
 
-      <div className="px-3 pb-2">
+      <div ref={bodyRef} className="min-h-0 flex-1 overflow-auto px-3 pb-2">
         {actionError && <div className="mb-2 text-sm text-[#C65536]">{actionError}</div>}
 
         {logs.length === 0 && (
@@ -136,6 +148,14 @@ export const PromptLog: React.FC = () => {
             </span>
             <div className="flex flex-col leading-tight">
               <div className="text-neutral-100">“{entry.prompt}”</div>
+              {(entry.resolver || entry.normalizedSpec) && (
+                <div
+                  className="text-[11px] text-neutral-500"
+                  title={entry.normalizedSpec ? JSON.stringify(entry.normalizedSpec, null, 2) : undefined}
+                >
+                  {[entry.resolver, specSummary(entry.normalizedSpec)].filter(Boolean).join(' • ')}
+                </div>
+              )}
               <div className="text-[12px] text-neutral-400">
                 {new Date(entry.ts).toLocaleTimeString()} • {entry.message}
               </div>

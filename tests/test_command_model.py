@@ -1,9 +1,9 @@
-"""Unit tests for generalized command normalization and selection compilation."""
+"""Unit tests for NexMol command normalization and selection compilation."""
 
 import importlib.util
 from pathlib import Path
 
-MODULE_PATH = Path(__file__).resolve().parent.parent / "plugin" / "command_model.py"
+MODULE_PATH = Path(__file__).resolve().parent.parent / "pymol-bridge" / "command_model.py"
 SPEC = importlib.util.spec_from_file_location("plugin_command_model", MODULE_PATH)
 command_model = importlib.util.module_from_spec(SPEC)
 assert SPEC and SPEC.loader
@@ -24,6 +24,10 @@ def test_normalize_residue_code_one_letter():
 def test_normalize_residue_code_full_name():
     assert normalize_residue_code("leucine") == "LEU"
     assert normalize_residue_code("serine (SER)") == "SER"
+
+
+def test_normalize_residue_code_plural_full_name():
+    assert normalize_residue_code("alanines") == "ALA"
 
 
 def test_compile_chain_selection():
@@ -62,6 +66,10 @@ def test_compile_atom_selection():
 
 def test_compile_object_selection():
     assert compile_selection_spec({"kind": "object", "object": "ligand_pose"}) == "%ligand_pose"
+
+
+def test_compile_scoped_ligand_selection():
+    assert compile_selection_spec({"kind": "ligand", "chain": "b", "object": "model1"}) == "organic and chain B and %model1"
 
 
 def test_normalize_legacy_color_residue_to_canonical():
@@ -119,6 +127,32 @@ def test_normalize_sequence_view_format():
     }
 
 
+def test_clear_labels_normalizes_without_target():
+    spec = normalize_command_spec({"name": "clear_labels", "arguments": {}})
+    assert spec == {
+        "name": "clear_labels",
+        "arguments": {},
+    }
+
+
+def test_clear_labels_normalizes_with_selected_target():
+    spec = normalize_command_spec(
+        {"name": "clear_labels", "arguments": {"target": "selected"}}
+    )
+    assert spec == {
+        "name": "clear_labels",
+        "arguments": {"target": {"kind": "active_selection"}},
+    }
+
+
+def test_clear_measurements_normalizes_without_arguments():
+    spec = normalize_command_spec({"name": "clear_measurements", "arguments": {}})
+    assert spec == {
+        "name": "clear_measurements",
+        "arguments": {},
+    }
+
+
 def test_align_objects_requires_supported_method():
     try:
         normalize_command_spec(
@@ -144,3 +178,111 @@ def test_compound_actions_are_rejected():
         assert str(exc) == ONLY_ONE_ACTION_ERROR
     else:
         raise AssertionError("Expected ValueError for compound action payload")
+
+
+def test_normalize_selection_spec_coerces_selected_string_target():
+    spec = normalize_command_spec(
+        {
+            "name": "color_selection",
+            "arguments": {
+                "target": "selected",
+                "color": "red",
+            },
+        }
+    )
+    assert spec == {
+        "name": "color_selection",
+        "arguments": {
+            "target": {"kind": "active_selection"},
+            "color": "red",
+        },
+    }
+
+
+def test_normalize_selection_spec_infers_object_kind_from_dict():
+    spec = normalize_command_spec(
+        {
+            "name": "zoom_selection",
+            "arguments": {
+                "target": {"object": "1crn"},
+            },
+        }
+    )
+    assert spec == {
+        "name": "zoom_selection",
+        "arguments": {
+            "target": {"kind": "object", "object": "1crn"},
+        },
+    }
+
+
+def test_orient_selection_is_normalized_for_compat_rejection():
+    spec = normalize_command_spec(
+        {
+            "name": "orient_selection",
+            "arguments": {"target": "chain b"},
+        }
+    )
+    assert spec == {
+        "name": "orient_selection",
+        "arguments": {
+            "target": {"kind": "chain", "chain": "B"},
+        },
+    }
+
+
+def test_measure_distance_preserves_scoped_ligand_and_plural_residue_target():
+    spec = normalize_command_spec(
+        {
+            "name": "measure_distance",
+            "arguments": {
+                "source": "ligand in chain b",
+                "target": {"kind": "residue", "residue": "asp", "chain": "b", "all_matches": True},
+            },
+        }
+    )
+    assert spec == {
+        "name": "measure_distance",
+        "arguments": {
+            "source": {"kind": "ligand", "chain": "B"},
+            "target": {"kind": "residue", "residue": "ASP", "chain": "B", "all_matches": True},
+        },
+    }
+
+
+def test_normalize_selection_spec_coerces_residue_string_target():
+    spec = normalize_command_spec(
+        {
+            "name": "color_selection",
+            "arguments": {
+                "target": "residue asp 21 in chain b",
+                "color": "red",
+            },
+        }
+    )
+    assert spec == {
+        "name": "color_selection",
+        "arguments": {
+            "target": {"kind": "residue", "residue": "ASP", "resi": "21", "chain": "B"},
+            "color": "red",
+        },
+    }
+
+
+def test_normalize_selection_spec_coerces_atom_string_target():
+    spec = normalize_command_spec(
+        {
+            "name": "label_selection",
+            "arguments": {
+                "target": "atom ca in residue asp 21 in chain b",
+                "mode": "atom",
+            },
+        }
+    )
+    assert spec == {
+        "name": "label_selection",
+        "arguments": {
+            "target": {"kind": "atom", "atom": "CA", "residue": "ASP", "resi": "21", "chain": "B"},
+            "mode": "atom",
+        },
+    }

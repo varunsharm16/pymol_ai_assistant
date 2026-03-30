@@ -2,7 +2,543 @@
 @tailwind components;
 @tailwind utilities;
 
-:root { color-scheme: dark; }
-.app-drag { -webkit-app-region: drag; }
-.app-no-drag { -webkit-app-region: no-drag; }
+@font-face {
+  font-family: 'Manrope';
+  src: url('./assets/fonts/Manrope[wght].ttf') format('truetype-variations');
+  font-weight: 200 400;
+  font-style: normal;
+  font-display: swap;
+}
 
+:root {
+  color-scheme: dark;
+}
+
+.app-drag {
+  -webkit-app-region: drag;
+}
+
+.app-no-drag {
+  -webkit-app-region: no-drag;
+}
+
+.msp-plugin,
+.msp-plugin-content,
+.msp-viewport,
+.msp-viewport-host3d {
+  background: var(--nexmol-viewer-bg, #111111) !important;
+}
+
+.msp-viewport-host3d>canvas {
+  background-color: var(--nexmol-viewer-bg, #111111) !important;
+  background-image: none !important;
+}
+
+.msp-logo {
+  display: none !important;
+}
+
+.nexmol-sequence-panel .msp-plugin {
+  background: #161616;
+  color: #e5e5e5;
+  min-height: 100%;
+  position: relative !important;
+  left: auto !important;
+  right: auto !important;
+  top: auto !important;
+  bottom: auto !important;
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+}
+
+.nexmol-sequence-panel .msp-sequence {
+  position: relative !important;
+  inset: auto !important;
+  width: 100%;
+  height: 100%;
+  background: linear-gradient(180deg, #171717 0%, #111111 100%);
+}
+
+.nexmol-sequence-panel .msp-sequence-wrapper-non-empty {
+  position: absolute;
+  inset: 33px 0 0 0;
+  overflow-y: auto;
+  overflow-x: hidden;
+  background: #121212;
+}
+
+.nexmol-sequence-panel .msp-sequence-select {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  height: 32px;
+  padding: 0 10px;
+  overflow-x: auto;
+  overflow-y: hidden;
+  white-space: nowrap;
+  scrollbar-width: thin;
+  background: linear-gradient(180deg, rgba(36, 36, 36, 0.96) 0%, rgba(24, 24, 24, 0.98) 100%);
+  border-bottom: 1px solid #2b2b2b;
+}
+
+.nexmol-sequence-panel .msp-sequence-select>span {
+  padding: 0;
+  color: #9fe870;
+  font-size: 11px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+
+.nexmol-sequence-panel .msp-sequence-select>span:not(.msp-icon),
+.nexmol-sequence-panel .msp-sequence-select>.msp-icon {
+  display: none;
+}
+
+.nexmol-sequence-panel .msp-sequence-select>select {
+  min-width: 92px;
+  max-width: 160px;
+  height: 24px;
+  padding: 0 26px 0 10px;
+  border: 1px solid #3b3b3b;
+  border-radius: 999px;
+  background-color: #111111;
+  color: #e5e5e5;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.04);
+}
+
+.nexmol-sequence-panel .msp-sequence-wrapper,
+.nexmol-sequence-panel .msp-sequence-chain-label {
+  background: transparent;
+}
+
+.nexmol-sequence-panel .msp-sequence-wrapper {
+  padding: 10px 12px 18px 12px;
+}
+
+.nexmol-sequence-panel .msp-sequence-chain-label,
+.nexmol-sequence-panel .msp-sequence-wrapper .msp-sequence-number,
+.nexmol-sequence-panel .msp-sequence-wrapper .msp-sequence-label {
+  color: #e7a44a;
+}
+
+.nexmol-sequence-panel .msp-sequence-wrapper .msp-sequence-present {
+  color: #f4efe4;
+}
+
+.nexmol-sequence-panel .msp-sequence-wrapper .msp-sequence-missing {
+  color: #989188;
+}
+
+.nexmol-sequence-panel .msp-sequence-residue-focused {
+  color: #0f1210;
+  background: #9fe870;
+  border-radius: 4px;
+  text-decoration: none;
+}
+
+.nexmol-sequence-panel .msp-btn,
+.nexmol-sequence-panel select,
+.msp-animation-viewport-controls .msp-btn,
+.msp-animation-viewport-controls .msp-btn-link,
+.msp-animation-viewport-controls .msp-form-control,
+.msp-selection-viewport-controls .msp-btn,
+.msp-selection-viewport-controls .msp-btn-link,
+.msp-selection-viewport-controls .msp-form-control,
+.msp-viewport-controls .msp-btn,
+.msp-viewport-controls .msp-btn-link,
+.msp-viewport-controls .msp-form-control {
+  color: #e5e5e5;
+}
+
+.msp-animation-viewport-controls .msp-btn,
+.msp-animation-viewport-controls .msp-btn-link,
+.msp-animation-viewport-controls .msp-form-control,
+.msp-selection-viewport-controls .msp-btn,
+.msp-selection-viewport-controls .msp-btn-link,
+.msp-selection-viewport-controls .msp-form-control,
+.msp-viewport-controls .msp-btn,
+.msp-viewport-controls .msp-btn-link,
+.msp-viewport-controls .msp-form-control,
+.msp-viewport-controls-panel .msp-btn,
+.msp-viewport-controls-panel .msp-form-control {
+  border-radius: 12px;
+  border: 1px solid #363636;
+  background: rgba(21, 21, 21, 0.94);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.04);
+}
+
+.msp-animation-viewport-controls .msp-btn:hover,
+.msp-animation-viewport-controls .msp-btn-link:hover,
+.msp-animation-viewport-controls .msp-form-control:hover,
+.msp-selection-viewport-controls .msp-btn:hover,
+.msp-selection-viewport-controls .msp-btn-link:hover,
+.msp-selection-viewport-controls .msp-form-control:hover,
+.msp-viewport-controls .msp-btn:hover,
+.msp-viewport-controls .msp-btn-link:hover,
+.msp-viewport-controls .msp-form-control:hover,
+.msp-viewport-controls-panel .msp-btn:hover,
+.msp-viewport-controls-panel .msp-form-control:hover {
+  border-color: #4a4a4a;
+  background: rgba(28, 28, 28, 0.98);
+}
+
+.msp-animation-viewport-controls .msp-btn-link-toggle-on,
+.msp-selection-viewport-controls .msp-btn-link-toggle-on,
+.msp-selection-viewport-controls .msp-btn-commit-on,
+.msp-viewport-controls .msp-btn-link-toggle-on,
+.msp-viewport-controls-panel .msp-btn-link-toggle-on {
+  color: #9fe870 !important;
+  border-color: rgba(159, 232, 112, 0.5);
+  background: rgba(36, 50, 27, 0.94);
+}
+
+.msp-animation-viewport-controls .msp-btn-link-toggle-off,
+.msp-selection-viewport-controls .msp-btn-link-toggle-off,
+.msp-viewport-controls .msp-btn-link-toggle-off {
+  color: #9a9a9a;
+}
+
+.msp-animation-viewport-controls .msp-semi-transparent-background,
+.msp-viewport-controls .msp-semi-transparent-background {
+  opacity: 1;
+  border-radius: 12px;
+  border: 1px solid #2f2f2f;
+  background: rgba(17, 17, 17, 0.82);
+  backdrop-filter: blur(10px);
+}
+
+.msp-animation-viewport-controls .msp-animation-viewport-controls-select,
+.msp-viewport-controls .msp-hover-box-body,
+.msp-viewport-controls .msp-viewport-controls-panel,
+.msp-selection-viewport-controls .msp-selection-viewport-controls-actions {
+  border: 1px solid #2f2f2f;
+  border-radius: 14px;
+  background: rgba(17, 17, 17, 0.96);
+  box-shadow: 0 12px 30px rgba(0, 0, 0, 0.28);
+}
+
+.msp-animation-viewport-controls-select .msp-btn,
+.msp-animation-viewport-controls-select .msp-btn-link,
+.msp-animation-viewport-controls-select .msp-form-control,
+.msp-hover-box-body .msp-btn,
+.msp-hover-box-body .msp-btn-link,
+.msp-hover-box-body .msp-form-control,
+.msp-viewport-controls-panel .msp-btn,
+.msp-viewport-controls-panel .msp-btn-link,
+.msp-viewport-controls-panel .msp-form-control,
+.msp-selection-viewport-controls-actions .msp-btn,
+.msp-selection-viewport-controls-actions .msp-btn-link,
+.msp-selection-viewport-controls-actions .msp-form-control {
+  width: 100%;
+  border-radius: 8px;
+  border: 1px solid #3a3a3a;
+  background: #111111;
+  color: #f5f5f5;
+  box-shadow: none;
+}
+
+.msp-animation-viewport-controls-select .msp-btn:hover,
+.msp-animation-viewport-controls-select .msp-btn-link:hover,
+.msp-animation-viewport-controls-select .msp-form-control:hover,
+.msp-hover-box-body .msp-btn:hover,
+.msp-hover-box-body .msp-btn-link:hover,
+.msp-hover-box-body .msp-form-control:hover,
+.msp-viewport-controls-panel .msp-btn:hover,
+.msp-viewport-controls-panel .msp-btn-link:hover,
+.msp-viewport-controls-panel .msp-form-control:hover,
+.msp-selection-viewport-controls-actions .msp-btn:hover,
+.msp-selection-viewport-controls-actions .msp-btn-link:hover,
+.msp-selection-viewport-controls-actions .msp-form-control:hover {
+  border-color: #565656;
+  background: #1a1a1a;
+}
+
+.msp-selection-viewport-controls-actions .msp-action-menu-options,
+.msp-selection-viewport-controls-actions .msp-action-menu-options-no-header,
+.msp-selection-viewport-controls-actions .msp-control-group-children,
+.msp-selection-viewport-controls-actions .msp-control-current,
+.msp-selection-viewport-controls-actions .msp-control-group-footer {
+  background: #111111 !important;
+}
+
+.msp-selection-viewport-controls-actions .msp-control-group-wrapper {
+  margin-top: 1px;
+  margin-bottom: 0;
+}
+
+.msp-selection-viewport-controls-actions .msp-control-group-header,
+.msp-selection-viewport-controls-actions .msp-control-group-header>button,
+.msp-selection-viewport-controls-actions .msp-control-group-header>div,
+.msp-selection-viewport-controls-actions .msp-action-menu-button {
+  background: #111111 !important;
+  color: #f5f5f5 !important;
+  border: 1px solid #4a4a4a !important;
+  border-radius: 8px !important;
+  box-shadow: none !important;
+}
+
+.msp-selection-viewport-controls-actions .msp-control-group-header>button:hover,
+.msp-selection-viewport-controls-actions .msp-control-group-header>div:hover,
+.msp-selection-viewport-controls-actions .msp-action-menu-button:hover {
+  background: #1a1a1a !important;
+  border-color: #666666 !important;
+}
+
+.msp-selection-viewport-controls-actions .msp-control-group-header .msp-icon,
+.msp-selection-viewport-controls-actions .msp-action-menu-button .msp-icon,
+.msp-selection-viewport-controls-actions .msp-control-group-header>span {
+  color: #f5f5f5 !important;
+  background: transparent !important;
+}
+
+.msp-hover-box-body .msp-flex-column,
+.msp-hover-box-body .msp-flex-row {
+  background: #111111 !important;
+}
+
+.msp-hover-box-body .msp-flex-row {
+  margin: 0 !important;
+}
+
+.msp-hover-box-body .msp-flex-row+.msp-flex-row {
+  margin-top: 1px !important;
+}
+
+.msp-hover-box-body .msp-flex-row>.msp-btn,
+.msp-hover-box-body .msp-flex-row>.msp-btn-link,
+.msp-hover-box-body .msp-flex-row>button {
+  width: 100%;
+  border-radius: 8px !important;
+  border: 1px solid #4a4a4a !important;
+  background: #111111 !important;
+  color: #f5f5f5 !important;
+  box-shadow: none !important;
+}
+
+.msp-hover-box-body .msp-flex-row>.msp-btn:hover,
+.msp-hover-box-body .msp-flex-row>.msp-btn-link:hover,
+.msp-hover-box-body .msp-flex-row>button:hover {
+  background: #1a1a1a !important;
+  border-color: #666666 !important;
+}
+
+.msp-viewport-top-left-controls {
+  left: auto !important;
+  right: 10px !important;
+  top: 82px !important;
+  width: 32px;
+  height: 32px;
+  overflow: visible;
+  pointer-events: none;
+}
+
+.msp-viewport-top-left-controls>.msp-traj-controls,
+.msp-viewport-top-left-controls>.msp-state-snapshot-viewport-controls,
+.msp-viewport-top-left-controls>:not(.msp-animation-viewport-controls) {
+  display: none !important;
+}
+
+.msp-viewport-top-left-controls .msp-animation-viewport-controls,
+.msp-viewport-top-left-controls .msp-animation-viewport-controls>div:first-child,
+.msp-viewport-top-left-controls .msp-animation-viewport-controls>div:first-child>button,
+.msp-viewport-top-left-controls .msp-animation-viewport-controls .msp-animation-viewport-controls-select {
+  pointer-events: auto;
+}
+
+.msp-viewport-top-left-controls .msp-animation-viewport-controls {
+  position: relative;
+  left: auto !important;
+  right: auto !important;
+  top: auto !important;
+  z-index: 6;
+  line-height: normal;
+  margin: 0 !important;
+  float: none !important;
+}
+
+.msp-animation-viewport-controls {
+  position: relative;
+  left: auto !important;
+  right: auto !important;
+  top: auto !important;
+  z-index: 4;
+  line-height: normal;
+  margin: 0 !important;
+  float: none !important;
+}
+
+.msp-animation-viewport-controls>div:first-child>button {
+  width: 32px;
+  height: 32px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 12px;
+}
+
+.msp-viewport-top-left-controls .msp-animation-viewport-controls .msp-animation-viewport-controls-select,
+.msp-animation-viewport-controls .msp-animation-viewport-controls-select {
+  left: auto !important;
+  right: calc(100% + 8px) !important;
+  top: 0 !important;
+  margin-top: 0;
+  width: 320px;
+  background: rgba(17, 17, 17, 0.96);
+}
+
+.msp-viewport-controls-buttons>div:nth-child(n+3) {
+  transform: translateY(36px);
+}
+
+.msp-selection-viewport-controls {
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: 0px;
+  transform: none;
+  width: min(520px, calc(100% - 160px));
+  margin: 0 auto;
+  z-index: 7;
+}
+
+.msp-selection-viewport-controls .msp-flex-row,
+.msp-viewport-controls .msp-viewport-controls-buttons {
+  gap: 6px;
+}
+
+.msp-selection-viewport-controls>.msp-flex-row {
+  margin-top: 0;
+  align-items: center;
+  justify-content: center;
+}
+
+.msp-selection-viewport-controls>.msp-flex-row>.msp-btn,
+.msp-selection-viewport-controls>.msp-flex-row>.msp-btn-link,
+.msp-selection-viewport-controls>.msp-flex-row>.msp-btn-icon {
+  width: 32px;
+  min-width: 32px;
+  max-width: 32px;
+  height: 32px;
+  line-height: 30px;
+  padding: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex: 0 0 32px;
+}
+
+.msp-selection-viewport-controls>.msp-flex-row select.msp-form-control {
+  width: 120px;
+  min-width: 120px;
+  max-width: 120px;
+  height: 32px;
+  padding: 0 12px;
+  flex: 0 0 120px;
+  border: 1px solid #4a4a4a;
+  border-radius: 12px;
+  background: #111111 !important;
+  color: #b8945f !important;
+  box-shadow: none;
+  text-align: center;
+  text-align-last: center;
+  appearance: none;
+}
+
+.msp-selection-viewport-controls>.msp-flex-row select.msp-form-control:hover,
+.msp-selection-viewport-controls>.msp-flex-row select.msp-form-control:focus {
+  border-color: rgba(159, 232, 112, 0.5);
+  background: #1a1a1a !important;
+  color: #e7a44a !important;
+  outline: none;
+}
+
+.msp-selection-viewport-controls>.msp-flex-row select.msp-form-control option {
+  background: #111111;
+  color: #f5f5f5;
+}
+
+.nexmol-viewer-empty-state {
+  position: absolute;
+  inset: 0;
+  z-index: 12;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  pointer-events: none;
+  opacity: 1;
+  transition: opacity 180ms ease;
+}
+
+.nexmol-viewer-empty-state.is-hidden {
+  opacity: 0;
+}
+
+.nexmol-viewer-empty-state-brand {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: clamp(8px, 1.2vw, 14px);
+  padding: 0 32px;
+  opacity: 0.92;
+  transform: translateY(-1.5%);
+  filter: drop-shadow(0 18px 40px rgba(0, 0, 0, 0.28));
+}
+
+.nexmol-viewer-empty-state-mark {
+  --nexmol-viewer-brand-gold: #b8945f;
+  width: clamp(134px, 20vw, 272px);
+  aspect-ratio: 1 / 1;
+  flex: 0 0 auto;
+  position: relative;
+}
+
+.nexmol-viewer-empty-state-mark-layer {
+  position: absolute;
+  inset: 0;
+  background: var(--nexmol-viewer-brand-gold);
+  -webkit-mask-image: var(--nexmol-mark-mask);
+  -webkit-mask-position: center;
+  -webkit-mask-repeat: no-repeat;
+  -webkit-mask-size: contain;
+  mask-image: var(--nexmol-mark-mask);
+  mask-position: center;
+  mask-repeat: no-repeat;
+  mask-size: contain;
+}
+
+.nexmol-viewer-empty-state-mark-under {
+  transform: scale(1.032);
+  opacity: 0.96;
+}
+
+.nexmol-viewer-empty-state-mark-core {
+  opacity: 1;
+}
+
+.nexmol-viewer-empty-state-wordmark {
+  font-family: 'Manrope', 'SF Pro Display', 'Segoe UI', sans-serif;
+  font-size: clamp(56px, 8.1vw, 124px);
+  font-weight: 400;
+  letter-spacing: -0.025em;
+  line-height: 0.92;
+  text-align: center;
+  transform: translateY(-4px);
+  color: #b8945f;
+  text-rendering: geometricPrecision;
+}
+
+@media (max-width: 900px) {
+  .nexmol-viewer-empty-state-brand {
+    gap: 8px;
+    padding: 0 20px;
+  }
+
+  .nexmol-viewer-empty-state-mark {
+    width: clamp(108px, 18vw, 176px);
+  }
+
+  .nexmol-viewer-empty-state-wordmark {
+    font-size: clamp(42px, 7vw, 82px);
+  }
+}

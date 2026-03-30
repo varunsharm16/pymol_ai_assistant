@@ -1,11 +1,8 @@
 import React from 'react';
 import { useStore } from '../store';
-import { getPdbInfo, fetchPdb, importFile } from '../lib/bridge';
+import { getPdbInfo, fetchStructureData, readStructureFile } from '../lib/bridge';
+import { globalViewerRef } from '../App';
 import { Search, Upload, Loader2, CheckCircle, XCircle, Atom } from 'lucide-react';
-import {
-  markCurrentProjectSessionDirty,
-  refreshCurrentProjectSessionCache,
-} from '../lib/projectSync';
 
 type Tab = 'fetch' | 'import';
 
@@ -13,6 +10,10 @@ const MoleculePanel: React.FC = () => {
   const [tab, setTab] = React.useState<Tab>('fetch');
   const currentMolecule = useStore((s) => s.projectMolecules[s.currentProjectId] || {});
   const setCurrentProjectMolecule = useStore((s) => s.setCurrentProjectMolecule);
+  const setCurrentProjectStructure = useStore((s) => s.setCurrentProjectStructure);
+  const setCurrentProjectViewerState = useStore((s) => s.setCurrentProjectViewerState);
+  const sequenceUi = useStore((s) => s.sequenceUi);
+  const viewerReady = useStore((s) => s.viewerReady);
   const addLog = useStore((s) => s.addLog);
   const updateLog = useStore((s) => s.updateLog);
 
@@ -26,11 +27,6 @@ const MoleculePanel: React.FC = () => {
   // Import state
   const [importStatus, setImportStatus] = React.useState<'idle' | 'loading' | 'loaded' | 'error'>('idle');
   const [importMsg, setImportMsg] = React.useState('');
-
-  const refreshSessionCache = React.useCallback(() => {
-    markCurrentProjectSessionDirty();
-    void refreshCurrentProjectSessionCache();
-  }, []);
 
   const handlePreview = async () => {
     if (!pdbId.trim()) return;
@@ -78,24 +74,51 @@ const MoleculePanel: React.FC = () => {
     const logId = addLog({
       prompt: `Fetch PDB: ${normalizedId}`,
       status: 'pending',
-      message: 'Sending fetch request…',
+      message: 'Downloading structure data…',
     });
-    const res = await fetchPdb(normalizedId, (progress) => {
+
+    const res = await fetchStructureData(normalizedId, (progress) => {
       updateLog(logId, { status: 'pending', message: progress.message });
     });
-    if (res.ok) {
-      refreshSessionCache();
-      setPdbStatus('loaded');
-      setPdbMsg(`Loaded ${normalizedId}`);
-      setCurrentProjectMolecule({
-        pdbId: normalizedId,
-        name: info?.title || normalizedId,
-      });
-      updateLog(logId, { status: 'success', message: 'Molecule loaded in PyMOL.' });
+
+    if (res.ok && res.data) {
+      try {
+        const viewer = globalViewerRef.current;
+        if (!viewer || !viewerReady) {
+          throw new Error('Viewer is still starting. Wait a moment and try loading the structure again.');
+        }
+        await viewer.loadStructure(res.data, res.format || 'pdb', { objectName: normalizedId });
+        const snapshot = await viewer.getSceneSnapshot();
+        setCurrentProjectViewerState({
+          backgroundColor: snapshot.backgroundColor,
+          cameraSnapshot: snapshot.cameraSnapshot,
+          operations: [],
+          sequenceUi,
+        });
+        setPdbStatus('loaded');
+        setPdbMsg(`Loaded ${normalizedId}`);
+        setCurrentProjectMolecule({
+          pdbId: normalizedId,
+          name: info?.title || normalizedId,
+        });
+        setCurrentProjectStructure({
+          data: res.data,
+          format: res.format || 'pdb',
+          objectName: normalizedId,
+        });
+        updateLog(logId, { status: 'success', message: 'Structure loaded.' });
+      } catch (error: any) {
+        setPdbStatus('error');
+        setPdbMsg(error?.message || 'Failed to load structure');
+        updateLog(logId, {
+          status: 'error',
+          message: error?.message || 'Viewer failed to load structure.',
+        });
+      }
     } else {
       setPdbStatus('error');
       setPdbMsg(res.error || 'Failed to fetch');
-      updateLog(logId, { status: 'error', message: res.error || 'Failed to fetch molecule.' });
+      updateLog(logId, { status: 'error', message: res.error || 'Failed to fetch structure.' });
     }
   };
 
@@ -107,7 +130,7 @@ const MoleculePanel: React.FC = () => {
     const result = await window.api.showOpenDialog({
       title: 'Import Molecule File',
       filters: [
-        { name: 'Molecule Files', extensions: ['pdb', 'cif', 'mol2', 'sdf'] },
+        { name: 'Molecule Files', extensions: ['pdb', 'cif', 'mol2', 'sdf', 'xyz'] },
         { name: 'All Files', extensions: ['*'] },
       ],
       properties: ['openFile'],
@@ -119,17 +142,43 @@ const MoleculePanel: React.FC = () => {
     setImportStatus('loading');
     setImportMsg('');
     const name = filePath.split(/[\\/]/).pop() || filePath;
-    const logId = addLog({ prompt: `Import: ${name}`, status: 'pending', message: 'Sending import request…' });
+    const logId = addLog({ prompt: `Import: ${name}`, status: 'pending', message: 'Reading file…' });
 
-    const res = await importFile(filePath, (progress) => {
+    const res = await readStructureFile(filePath, (progress) => {
       updateLog(logId, { status: 'pending', message: progress.message });
     });
-    if (res.ok) {
-      refreshSessionCache();
-      setImportStatus('loaded');
-      setImportMsg(`Loaded ${name}`);
-      setCurrentProjectMolecule({ filePath, name });
-      updateLog(logId, { status: 'success', message: 'File loaded in PyMOL.' });
+
+    if (res.ok && res.data) {
+      try {
+        const viewer = globalViewerRef.current;
+        if (!viewer || !viewerReady) {
+          throw new Error('Viewer is still starting. Wait a moment and try importing again.');
+        }
+        await viewer.loadStructure(res.data, res.format || 'pdb', { objectName: name });
+        const snapshot = await viewer.getSceneSnapshot();
+        setCurrentProjectViewerState({
+          backgroundColor: snapshot.backgroundColor,
+          cameraSnapshot: snapshot.cameraSnapshot,
+          operations: [],
+          sequenceUi,
+        });
+        setImportStatus('loaded');
+        setImportMsg(`Loaded ${name}`);
+        setCurrentProjectMolecule({ filePath, name });
+        setCurrentProjectStructure({
+          data: res.data,
+          format: res.format || 'pdb',
+          objectName: name,
+        });
+        updateLog(logId, { status: 'success', message: 'Structure loaded.' });
+      } catch (error: any) {
+        setImportStatus('error');
+        setImportMsg(error?.message || 'Import failed');
+        updateLog(logId, {
+          status: 'error',
+          message: error?.message || 'Viewer failed to load structure.',
+        });
+      }
     } else {
       setImportStatus('error');
       setImportMsg(res.error || 'Import failed');
@@ -209,15 +258,21 @@ const MoleculePanel: React.FC = () => {
 
             <button
               onClick={handleFetch}
-              disabled={!pdbId.trim() || pdbStatus === 'loading'}
+              disabled={!pdbId.trim() || pdbStatus === 'loading' || !viewerReady}
               className="w-full h-10 rounded-full bg-brand hover:bg-brandHover text-black font-medium text-sm disabled:opacity-40 flex items-center justify-center gap-2"
             >
               {pdbStatus === 'loading' ? (
                 <><Loader2 className="w-4 h-4 animate-spin" /> Loading…</>
               ) : (
-                'Load in PyMOL'
+                'Load Structure'
               )}
             </button>
+
+            {!viewerReady && (
+              <div className="text-xs text-neutral-400">
+                Viewer is starting up. Load will enable once Mol* is ready.
+              </div>
+            )}
 
             {pdbMsg && (
               <div className={`flex items-center gap-2 text-sm ${pdbStatus === 'loaded' ? 'text-emerald-400' : pdbStatus === 'error' ? 'text-red-400' : 'text-neutral-400'}`}>
@@ -233,13 +288,19 @@ const MoleculePanel: React.FC = () => {
           <>
             <button
               onClick={handleImport}
-              disabled={importStatus === 'loading'}
+              disabled={importStatus === 'loading' || !viewerReady}
               className="w-full h-24 rounded-xl border-2 border-dashed border-neutral-600 hover:border-brand flex flex-col items-center justify-center gap-2 text-sm text-neutral-400 hover:text-neutral-200 transition"
             >
               <Upload className="w-6 h-6" />
               <span>Choose a molecule file</span>
-              <span className="text-xs text-neutral-500">.pdb .cif .mol2 .sdf</span>
+              <span className="text-xs text-neutral-500">.pdb .cif .mol2 .sdf .xyz</span>
             </button>
+
+            {!viewerReady && (
+              <div className="text-xs text-neutral-400">
+                Viewer is starting up. Import will enable once Mol* is ready.
+              </div>
+            )}
 
             {importMsg && (
               <div className={`flex items-center gap-2 text-sm ${importStatus === 'loaded' ? 'text-emerald-400' : importStatus === 'error' ? 'text-red-400' : 'text-neutral-400'}`}>

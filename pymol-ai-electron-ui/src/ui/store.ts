@@ -6,6 +6,12 @@ export type LogEntry = {
   prompt: string;
   status: 'pending' | 'success' | 'error';
   message: string;
+  resolver?: 'parser' | 'llm';
+  normalizedSpec?: {
+    name: string;
+    arguments?: Record<string, any>;
+  };
+  diagnostic?: string;
 };
 
 export type Project = {
@@ -34,16 +40,45 @@ export type MoleculeInfo = {
   name?: string;
 };
 
-export type CurrentSelectionTag = {
-  label: string;
-  description: string;
-  count: number;
-  source: string;
-  target: Record<string, any>;
+export type ViewerSelectionSpec =
+  | { kind: 'all' }
+  | { kind: 'protein' }
+  | { kind: 'ligand' }
+  | { kind: 'water' }
+  | { kind: 'metals' }
+  | { kind: 'hydrogens' }
+  | { kind: 'active_selection' }
+  | { kind: 'current_selection' }
+  | { kind: 'selection_set'; items: ViewerSelectionSpec[] }
+  | { kind: 'chain'; chain: string; object?: string }
+  | { kind: 'residue'; residue: string; chain?: string; resi?: string; atom?: string; object?: string; allMatches?: boolean }
+  | { kind: 'atom'; atom: string; residue?: string; chain?: string; resi?: string; object?: string }
+  | { kind: 'object'; object: string };
+
+export type SequenceUiMode = 'single' | 'polymers' | 'all';
+export const DEFAULT_SEQUENCE_PANEL_WIDTH = 420;
+
+export type ProjectStructure = {
+  data: string;
+  format: string;
+  objectName?: string;
+};
+
+export type NormalizedSpec = {
+  name: string;
+  arguments?: Record<string, any>;
+};
+
+export type ViewerState = {
+  backgroundColor?: string;
+  cameraSnapshot?: any;
+  operations: NormalizedSpec[];
+  sequenceUi?: { open: boolean; mode: SequenceUiMode; width: number };
 };
 
 type Right =
   | 'none'
+  | 'chat'
   | 'projects'
   | 'notepad'
   | 'toolbox'
@@ -58,23 +93,27 @@ type State = {
   logs: Record<string, LogEntry[]>;
   notes: Record<string, string>;
   projectMolecules: Record<string, MoleculeInfo>;
-  projectSessions: Record<string, string | null>;
-  projectSessionDirty: Record<string, boolean>;
+  projectStructures: Record<string, ProjectStructure | undefined>;
+  projectViewerStates: Record<string, ViewerState | undefined>;
   draft: string;
-  ui: { rightPanel: Right; quickActionsExpanded: boolean };
+  ui: { rightPanel: Right };
+  currentViewerSelection: ViewerSelectionSpec | null;
+  activeViewerSelections: ViewerSelectionSpec[];
+  selectedResiduePair: ViewerSelectionSpec[];
+  sequenceUi: { open: boolean; mode: SequenceUiMode; width: number };
+  viewerReady: boolean;
+  viewerExpanded: boolean;
 
   apiKeyConfigured: boolean;
   showApiKeyModal: boolean;
   healthChecks: HealthCheck[];
   recentProjects: RecentProject[];
-  currentSelection: CurrentSelectionTag | null;
 
   pendingRenameId?: string | null;
   switchingProject: boolean;
 
   forceRightPanel: (p: Right) => void;
   setRightPanel: (p: Right) => void;
-  toggleQuickActions: () => void;
   setProjectName: (name: string) => void;
   createProject: (name: string) => string;
   deleteProject: (id: string) => void;
@@ -85,6 +124,16 @@ type State = {
   clearProjectLogs: (projectId: string) => void;
   setNotes: (md: string) => void;
   setDraft: (v: string) => void;
+  setCurrentViewerSelection: (selection: ViewerSelectionSpec | null) => void;
+  setActiveViewerSelections: (selections: ViewerSelectionSpec[]) => void;
+  setSelectedResiduePair: (pair: ViewerSelectionSpec[]) => void;
+  clearViewerSelectionState: () => void;
+  setSequenceUiOpen: (open: boolean) => void;
+  toggleSequenceUi: () => void;
+  setSequenceUiMode: (mode: SequenceUiMode) => void;
+  setSequenceUiWidth: (width: number) => void;
+  setViewerReady: (ready: boolean) => void;
+  setViewerExpanded: (expanded: boolean) => void;
   setPendingRename: (id: string | null) => void;
   selectProject: (id: string) => void;
   renameProject: (id: string, name: string) => void;
@@ -92,22 +141,23 @@ type State = {
   setShowApiKeyModal: (v: boolean) => void;
   setHealthChecks: (checks: HealthCheck[]) => void;
   setRecentProjects: (p: RecentProject[]) => void;
-  setProjectSession: (projectId: string, data: string | null) => void;
-  setProjectSessionDirty: (projectId: string, dirty: boolean) => void;
-  setCurrentProjectSessionDirty: (dirty: boolean) => void;
   setProjectMolecule: (projectId: string, molecule: MoleculeInfo) => void;
   setCurrentProjectMolecule: (molecule: MoleculeInfo) => void;
+  setProjectStructure: (projectId: string, structure?: ProjectStructure) => void;
+  setCurrentProjectStructure: (structure?: ProjectStructure) => void;
+  setProjectViewerState: (projectId: string, viewerState?: ViewerState) => void;
+  setCurrentProjectViewerState: (viewerState?: ViewerState) => void;
   hydrateProjectFromLoadedFile: (opts: {
     id?: string;
     name: string;
     logs?: Array<Partial<LogEntry>>;
     notes?: string;
     molecule?: MoleculeInfo;
-    sessionData?: string | null;
+    structure?: ProjectStructure;
+    viewerState?: ViewerState;
   }) => string;
   setSwitchingProject: (value: boolean) => void;
   resetWorkspace: (name?: string) => string;
-  setCurrentSelection: (selection: CurrentSelectionTag | null) => void;
 };
 
 const uid = () => Math.random().toString(36).slice(2);
@@ -130,8 +180,10 @@ function createWorkspaceState(name = 'New Project') {
     logs: { [project.id]: [] as LogEntry[] },
     notes: { [project.id]: '' },
     projectMolecules: { [project.id]: {} as MoleculeInfo },
-    projectSessions: { [project.id]: null as string | null },
-    projectSessionDirty: { [project.id]: false },
+    projectStructures: { [project.id]: undefined as ProjectStructure | undefined },
+    projectViewerStates: {
+      [project.id]: { operations: [], sequenceUi: { open: false, mode: 'single', width: DEFAULT_SEQUENCE_PANEL_WIDTH } } as ViewerState,
+    },
   };
 }
 
@@ -143,16 +195,21 @@ export const useStore = create<State>((set, get) => ({
   logs: initialWorkspace.logs,
   notes: initialWorkspace.notes,
   projectMolecules: initialWorkspace.projectMolecules,
-  projectSessions: initialWorkspace.projectSessions,
-  projectSessionDirty: initialWorkspace.projectSessionDirty,
+  projectStructures: initialWorkspace.projectStructures,
+  projectViewerStates: initialWorkspace.projectViewerStates,
   draft: '',
-  ui: { rightPanel: 'none', quickActionsExpanded: false },
+  ui: { rightPanel: 'none' },
+  currentViewerSelection: null,
+  activeViewerSelections: [],
+  selectedResiduePair: [],
+  sequenceUi: { open: false, mode: 'single', width: DEFAULT_SEQUENCE_PANEL_WIDTH },
+  viewerReady: false,
+  viewerExpanded: false,
 
   apiKeyConfigured: false,
   showApiKeyModal: false,
   healthChecks: [],
   recentProjects: [],
-  currentSelection: null,
 
   pendingRenameId: null,
   switchingProject: false,
@@ -172,10 +229,6 @@ export const useStore = create<State>((set, get) => ({
     })),
   forceRightPanel: (p) =>
     set((s) => ({ ui: { ...s.ui, rightPanel: p } })),
-  toggleQuickActions: () =>
-    set((s) => ({
-      ui: { ...s.ui, quickActionsExpanded: !s.ui.quickActionsExpanded },
-    })),
   setProjectName: (name) =>
     set((s) => ({
       projects: s.projects.map((p) =>
@@ -187,31 +240,55 @@ export const useStore = create<State>((set, get) => ({
   createProject: (name) => {
     const p = createProjectRecord(name);
     set((s) => ({
+      currentProjectId: p.id,
       projects: [p, ...s.projects],
       logs: { ...s.logs, [p.id]: [] },
       notes: { ...s.notes, [p.id]: '' },
       projectMolecules: { ...s.projectMolecules, [p.id]: {} },
-      projectSessions: { ...s.projectSessions, [p.id]: null },
-      projectSessionDirty: { ...s.projectSessionDirty, [p.id]: false },
+      projectStructures: { ...s.projectStructures, [p.id]: undefined },
+      projectViewerStates: {
+        ...s.projectViewerStates,
+        [p.id]: { operations: [], sequenceUi: { open: false, mode: 'single', width: DEFAULT_SEQUENCE_PANEL_WIDTH } },
+      },
       pendingRenameId: p.id,
     }));
     return p.id;
   },
   deleteProject: (id) =>
-    set((s) => ({
-      projects: s.projects.filter((p) => p.id !== id),
-      logs: Object.fromEntries(Object.entries(s.logs).filter(([key]) => key !== id)),
-      notes: Object.fromEntries(Object.entries(s.notes).filter(([key]) => key !== id)),
-      projectMolecules: Object.fromEntries(
+    set((s) => {
+      const remainingProjects = s.projects.filter((p) => p.id !== id);
+      const fallbackProject = remainingProjects[0] || createProjectRecord('New Project');
+      const logs = Object.fromEntries(Object.entries(s.logs).filter(([key]) => key !== id));
+      const notes = Object.fromEntries(Object.entries(s.notes).filter(([key]) => key !== id));
+      const projectMolecules = Object.fromEntries(
         Object.entries(s.projectMolecules).filter(([key]) => key !== id)
-      ),
-      projectSessions: Object.fromEntries(
-        Object.entries(s.projectSessions).filter(([key]) => key !== id)
-      ),
-      projectSessionDirty: Object.fromEntries(
-        Object.entries(s.projectSessionDirty).filter(([key]) => key !== id)
-      ),
-    })),
+      );
+      const projectStructures = Object.fromEntries(
+        Object.entries(s.projectStructures).filter(([key]) => key !== id)
+      );
+      const projectViewerStates = Object.fromEntries(
+        Object.entries(s.projectViewerStates).filter(([key]) => key !== id)
+      );
+
+      if (!remainingProjects.length) {
+        logs[fallbackProject.id] = [];
+        notes[fallbackProject.id] = '';
+        projectMolecules[fallbackProject.id] = {};
+        projectStructures[fallbackProject.id] = undefined;
+        projectViewerStates[fallbackProject.id] = { operations: [], sequenceUi: { open: false, mode: 'single', width: DEFAULT_SEQUENCE_PANEL_WIDTH } };
+      }
+
+      return {
+        currentProjectId:
+          s.currentProjectId === id ? fallbackProject.id : s.currentProjectId,
+        projects: remainingProjects.length ? remainingProjects : [fallbackProject],
+        logs,
+        notes,
+        projectMolecules,
+        projectStructures,
+        projectViewerStates,
+      };
+    }),
   addLog: (entry) => get().addLogToProject(get().currentProjectId, entry),
   addLogToProject: (projectId, entry) => {
     const id = uid();
@@ -219,7 +296,7 @@ export const useStore = create<State>((set, get) => ({
     set((s) => ({
       logs: {
         ...s.logs,
-        [projectId]: [logEntry, ...(s.logs[projectId] || [])],
+        [projectId]: [...(s.logs[projectId] || []), logEntry],
       },
     }));
     return id;
@@ -242,25 +319,74 @@ export const useStore = create<State>((set, get) => ({
   setNotes: (md) =>
     set((s) => ({ notes: { ...s.notes, [s.currentProjectId]: md } })),
   setDraft: (v) => set({ draft: v }),
+  setCurrentViewerSelection: (selection) => set({ currentViewerSelection: selection }),
+  setActiveViewerSelections: (selections) => set({ activeViewerSelections: selections }),
+  setSelectedResiduePair: (pair) => set({ selectedResiduePair: pair }),
+  clearViewerSelectionState: () => set({ currentViewerSelection: null, activeViewerSelections: [], selectedResiduePair: [] }),
+  setSequenceUiOpen: (open) =>
+    set((s) => {
+      const currentViewerState = s.projectViewerStates[s.currentProjectId] || { operations: [] };
+      return {
+        sequenceUi: { ...s.sequenceUi, open },
+        projectViewerStates: {
+          ...s.projectViewerStates,
+          [s.currentProjectId]: {
+            ...currentViewerState,
+            sequenceUi: { ...(currentViewerState.sequenceUi || s.sequenceUi), open },
+          },
+        },
+      };
+    }),
+  toggleSequenceUi: () =>
+    set((s) => {
+      const open = !s.sequenceUi.open;
+      const currentViewerState = s.projectViewerStates[s.currentProjectId] || { operations: [] };
+      return {
+        sequenceUi: { ...s.sequenceUi, open },
+        projectViewerStates: {
+          ...s.projectViewerStates,
+          [s.currentProjectId]: {
+            ...currentViewerState,
+            sequenceUi: { ...(currentViewerState.sequenceUi || s.sequenceUi), open },
+          },
+        },
+      };
+    }),
+  setSequenceUiMode: (mode) =>
+    set((s) => {
+      const currentViewerState = s.projectViewerStates[s.currentProjectId] || { operations: [] };
+      return {
+        sequenceUi: { ...s.sequenceUi, mode },
+        projectViewerStates: {
+          ...s.projectViewerStates,
+          [s.currentProjectId]: {
+            ...currentViewerState,
+            sequenceUi: { ...(currentViewerState.sequenceUi || s.sequenceUi), mode },
+          },
+        },
+      };
+    }),
+  setSequenceUiWidth: (width) =>
+    set((s) => {
+      const currentViewerState = s.projectViewerStates[s.currentProjectId] || { operations: [] };
+      return {
+        sequenceUi: { ...s.sequenceUi, width },
+        projectViewerStates: {
+          ...s.projectViewerStates,
+          [s.currentProjectId]: {
+            ...currentViewerState,
+            sequenceUi: { ...(currentViewerState.sequenceUi || s.sequenceUi), width },
+          },
+        },
+      };
+    }),
+  setViewerReady: (ready) => set({ viewerReady: ready }),
+  setViewerExpanded: (expanded) => set({ viewerExpanded: expanded }),
 
   setApiKeyConfigured: (v) => set({ apiKeyConfigured: v }),
   setShowApiKeyModal: (v) => set({ showApiKeyModal: v }),
   setHealthChecks: (checks) => set({ healthChecks: checks }),
   setRecentProjects: (p) => set({ recentProjects: p }),
-  setCurrentSelection: (selection) => set({ currentSelection: selection }),
-  setProjectSession: (projectId, data) =>
-    set((s) => ({
-      projectSessions: { ...s.projectSessions, [projectId]: data },
-      projectSessionDirty: { ...s.projectSessionDirty, [projectId]: false },
-    })),
-  setProjectSessionDirty: (projectId, dirty) =>
-    set((s) => ({
-      projectSessionDirty: { ...s.projectSessionDirty, [projectId]: dirty },
-    })),
-  setCurrentProjectSessionDirty: (dirty) => {
-    const projectId = get().currentProjectId;
-    get().setProjectSessionDirty(projectId, dirty);
-  },
   setProjectMolecule: (projectId, molecule) =>
     set((s) => ({
       projectMolecules: { ...s.projectMolecules, [projectId]: molecule },
@@ -269,7 +395,23 @@ export const useStore = create<State>((set, get) => ({
     const projectId = get().currentProjectId;
     get().setProjectMolecule(projectId, molecule);
   },
-  hydrateProjectFromLoadedFile: ({ id, name, logs, notes, molecule, sessionData }) => {
+  setProjectStructure: (projectId, structure) =>
+    set((s) => ({
+      projectStructures: { ...s.projectStructures, [projectId]: structure },
+    })),
+  setCurrentProjectStructure: (structure) => {
+    const projectId = get().currentProjectId;
+    get().setProjectStructure(projectId, structure);
+  },
+  setProjectViewerState: (projectId, viewerState) =>
+    set((s) => ({
+      projectViewerStates: { ...s.projectViewerStates, [projectId]: viewerState },
+    })),
+  setCurrentProjectViewerState: (viewerState) => {
+    const projectId = get().currentProjectId;
+    get().setProjectViewerState(projectId, viewerState);
+  },
+  hydrateProjectFromLoadedFile: ({ id, name, logs, notes, molecule, structure, viewerState }) => {
     const projectId = id || uid();
     const project: Project = {
       id: projectId,
@@ -294,8 +436,11 @@ export const useStore = create<State>((set, get) => ({
       },
       notes: { ...s.notes, [projectId]: notes || '' },
       projectMolecules: { ...s.projectMolecules, [projectId]: molecule || {} },
-      projectSessions: { ...s.projectSessions, [projectId]: sessionData || null },
-      projectSessionDirty: { ...s.projectSessionDirty, [projectId]: false },
+      projectStructures: { ...s.projectStructures, [projectId]: structure },
+      projectViewerStates: {
+        ...s.projectViewerStates,
+        [projectId]: viewerState || { operations: [], sequenceUi: { open: false, mode: 'single', width: DEFAULT_SEQUENCE_PANEL_WIDTH } },
+      },
     }));
     return projectId;
   },
@@ -308,13 +453,17 @@ export const useStore = create<State>((set, get) => ({
       logs: workspace.logs,
       notes: workspace.notes,
       projectMolecules: workspace.projectMolecules,
-      projectSessions: workspace.projectSessions,
-      projectSessionDirty: workspace.projectSessionDirty,
+      projectStructures: workspace.projectStructures,
+      projectViewerStates: workspace.projectViewerStates,
       pendingRenameId: null,
       switchingProject: false,
-      currentSelection: null,
       draft: '',
-      ui: { ...s.ui, rightPanel: 'none' },
+      ui: { rightPanel: 'none' },
+      currentViewerSelection: null,
+      activeViewerSelections: [],
+      selectedResiduePair: [],
+      sequenceUi: { ...s.sequenceUi, open: false },
+      viewerReady: false,
     }));
     return workspace.currentProjectId;
   },

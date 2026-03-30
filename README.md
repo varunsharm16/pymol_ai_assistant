@@ -1,199 +1,215 @@
-# PyMOL AI Assistant
+# NexMol
 
-Desktop assistant for PyMOL that lets users control common molecular-visualization tasks with plain English.
+NexMol is the standalone pivot of the former PyMOL AI Assistant project. The current build runs as an Electron desktop app with a React + Mol* viewer and a FastAPI backend for AI, config, and structure-data services.
 
-Current version: `0.1.1-alpha`
+## Download
 
-## Before You Start
+End users should download packaged builds from [GitHub Releases](https://github.com/varunsharm16/pymol_ai_assistant/releases).
 
-You must already have:
+Packaged alpha builds bundle the NexMol backend. End users should not need to install Python, Node.js, or npm separately.
 
-- PyMOL installed
-- an OpenAI API key
+Current macOS release asset: `NexMol-0.2.1-alpha-arm64.dmg`
+Current Windows release asset: `NexMol-0.2.1-alpha-win-x64.exe`
 
-Everything else can be handled by the bootstrap installers below.
+## Install on macOS
 
-## Fast Install
-
-### macOS
+1. Download the latest macOS `.dmg` release asset from [GitHub Releases](https://github.com/varunsharm16/pymol_ai_assistant/releases).
+2. Open the DMG and drag `NexMol.app` into `Applications`.
+3. If macOS blocks the first launch, open Terminal and run:
 
 ```bash
-/bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/varunsharm16/pymol_ai_assistant/main/bootstrap-macos.sh)"
+xattr -dr com.apple.quarantine /Applications/NexMol.app
 ```
 
-### Windows
+4. Launch `NexMol` from `Applications`.
+5. Open Settings and enter your OpenAI API key.
+
+Note: the current macOS alpha build is signed, but Apple notarization is still pending. Until that is complete, macOS may show a protection warning on first launch.
+
+## Windows
+
+1. Download the latest Windows `x64` installer `.exe` from [GitHub Releases](https://github.com/varunsharm16/pymol_ai_assistant/releases).
+2. Run the installer.
+3. If Windows shows `Windows protected your PC`, click `More info`, then `Run anyway`.
+4. Launch `NexMol`.
+5. Open Settings and enter your OpenAI API key.
+
+## Current Status
+
+This branch is a staged weekend stabilization build.
+
+Working now:
+
+- Electron desktop shell
+- browser dev mode is still experimental
+- PDB fetch
+- local structure import
+- prompt log
+- API key configuration
+- project save/load with embedded structure data
+- core Mol*-backed viewer commands with project scene replay
+
+Staged but not fully implemented yet:
+
+- alignment
+- polar contacts
+
+These staged features are intentionally preserved in the parser and command model. They may be accepted by the app and surfaced as not yet implemented rather than removed.
+
+## Architecture
+
+```text
+Electron (React + Mol*)  <--HTTP-->  FastAPI backend
+```
+
+- Frontend executes viewer commands directly.
+- Backend handles LLM prompting, config, validation, and structure-data access.
+- Electron starts the backend on an ephemeral localhost port and passes that port to the frontend through IPC.
+
+## Build from Source
+
+### Requirements
+
+- Python 3.8+
+- Node.js 18+
+- npm
+- OpenAI API key
+
+Recommended checks:
+
+```bash
+python3 --version
+node --version
+npm --version
+```
+
+On Windows:
 
 ```powershell
-powershell -ExecutionPolicy Bypass -NoProfile -Command "irm https://raw.githubusercontent.com/varunsharm16/pymol_ai_assistant/main/bootstrap-windows.ps1 | iex"
+python --version
+node --version
+npm --version
 ```
 
-These bootstrap scripts:
+### Development Setup
 
-- check that PyMOL is already installed
-- install missing Git, Python, Node.js, and npm if needed
-- clone or update the repo automatically
-- run the normal installer
-- configure PyMOL to auto-load the assistant on startup
-
-The Windows bootstrap may require PowerShell to be run as Administrator if it needs to install missing tools.
-
-## Manual Install
-
-Use this only if you do not want the bootstrap installer.
-
-### macOS / Linux
+Backend:
 
 ```bash
-git clone https://github.com/varunsharm16/pymol_ai_assistant.git
-cd pymol_ai_assistant
-./install.sh
+cd pymol-bridge
+python3 -m venv .venv
+source .venv/bin/activate
+pip install -r requirements.txt
 ```
 
-### Windows
+Frontend:
 
-```bat
-git clone https://github.com/varunsharm16/pymol_ai_assistant.git
-cd pymol_ai_assistant
-install.bat
+```bash
+cd pymol-ai-electron-ui
+npm install
 ```
 
-If you do not have Git, you can download the repo as a ZIP instead.
+### Running NexMol
 
-## First Launch
+Desktop app:
 
-1. Open PyMOL
-2. Type `ai`
-3. The Electron app should open
-4. On first launch, complete onboarding
-5. Open `Status` and run the system check
-6. Enter your OpenAI API key in `Settings` if prompted
+```bash
+cd pymol-ai-electron-ui
+npm run dev
+```
 
-If `ai` is not recognized, rerun the installer.
+Browser dev mode:
 
-## What It Can Do
+1. Start the backend manually:
 
-- fetch structures by PDB ID
-- import local structure files
-- show and hide common representations
-- color residues, chains, ligands, proteins, or everything
-- color by chain and by element
-- remove waters, metals, or hydrogens
-- isolate targets
-- label residues or atoms
-- zoom, orient, rotate, and change background
+```bash
+cd pymol-bridge
+.venv/bin/python main.py
+```
+
+2. Note the printed `NEXMOL_PORT=<port>` value.
+3. Start the frontend:
+
+```bash
+cd pymol-ai-electron-ui
+npm run dev
+```
+
+4. Open the Vite URL with `?port=<port>`.
+
+Example:
+
+```text
+http://localhost:5173/?port=51234
+```
+
+## Features
+
+## Command Capability Matrix
+
+Supported now:
+
+- show/hide representation
+- isolate selection
+- remove selection as non-destructive hide/filter
+- color selection
+- color by chain
+- color by element
 - set transparency
-- measure distances
-- show polar contacts
-- align objects
-- show PyMOL’s built-in sequence view
-- save snapshots
-- save and reopen `.pymolai` project files
+- label selection
+- zoom/orient selection
+- measure distance
+- set background
+- rotate view
+- snapshot
+- structure fetch/import
 
-The app also includes projects, notes, prompt logs, onboarding, health checks, and current-selection tags such as `@A:ALA21`.
+Staged:
 
-## How To Use It
+- polar contacts
+- object alignment
+- sequence view / sequence formatting
 
-Keep prompts short and use one action at a time.
+Implemented viewer actions:
 
-Good:
+- show/hide representation
+- isolate selection
+- remove selection
+- color selection
+- color by chain
+- color by element
+- set transparency
+- label selection
+- zoom/orient selection
+- measure distance
+- set background
+- rotate view
+- snapshot
+- fetch/import structure
 
-- `Show protein as cartoon`
-- `Color chain A red`
-- `Zoom to ligand`
+Projects:
 
-Bad:
+- save `.nexmol` project files
+- reopen recent projects
+- restore notes, prompt log, molecule metadata, and embedded structure data
 
-- `Fetch 1CRN and color it blue and rotate 45 degrees`
+Selection behavior:
 
-If you want to be more precise, use the selection tag shown by the UI when PyMOL has a current selection.
+- the viewer tracks a current selection from atom clicks
+- prompts that use `current_selection` now require a clicked atom first
 
-## Configuration
+## Testing
 
-Local config is stored in:
-
-- `~/.pymol/config.json`
-
-Common keys:
-
-- `project_root`
-- `node_path`
-- `npm_path`
-- `openai_api_key`
-- `openai_model`
-
-If `openai_model` is not set, the app currently defaults to `gpt-5.4-mini`.
-
-## Troubleshooting
-
-### `ai` is not defined in PyMOL
-
-Rerun the installer. It should add a managed PyMOL AI Assistant startup block automatically.
-
-Typical plugin locations:
-
-- `~/.pymol/Plugins/pymol_ai_assistant`
-- macOS/Linux startup file: `~/.pymolrc`
-- Windows startup file: `%USERPROFILE%\pymolrc`
-
-### Bootstrap says PyMOL was not found
-
-Install PyMOL first, confirm it launches normally, then rerun the bootstrap.
-
-### Windows bootstrap says to rerun as Administrator
-
-This means Windows needs permission to install missing tools.
-
-Do this:
-
-1. Close the current PowerShell window
-2. Open the Start menu
-3. Search for `PowerShell`
-4. Right-click `Windows PowerShell` or `PowerShell`
-5. Choose `Run as administrator`
-6. Rerun the bootstrap command
-
-### Bootstrap says the repo directory already exists but is not a git repo
-
-Move or remove the existing directory, then rerun the bootstrap:
-
-- macOS: `~/pymol_ai_assistant`
-- Windows: `%USERPROFILE%\pymol_ai_assistant`
-
-### Electron UI does not open
-
-Rerun the installer and check:
-
-- `pymol-ai-electron-ui/dist/index.html`
-- `~/.pymol/electron-ui.log`
-
-### Bridge is unreachable
-
-Rerun the installer so the bridge virtual environment and dependencies are rebuilt.
-
-### Prompts fail often
-
-Common causes:
-
-- the plugin is not connected
-- the target does not exist in the current scene
-- the prompt contains multiple actions
-
-Use shorter, single-action prompts and check `Status`.
-
-## Development
-
-Key files:
-
-- [`plugin/__init__.py`](plugin/__init__.py)
-- [`plugin/command_model.py`](plugin/command_model.py)
-- [`pymol-bridge/main.py`](pymol-bridge/main.py)
-- [`pymol-ai-electron-ui/src/ui/App.tsx`](pymol-ai-electron-ui/src/ui/App.tsx)
-
-Common checks:
+Backend checks:
 
 ```bash
 pymol-bridge/.venv/bin/pytest -q tests
-python3 -m py_compile plugin/__init__.py plugin/command_model.py pymol-bridge/main.py
+python3 -m py_compile pymol-bridge/main.py pymol-bridge/command_model.py
+```
+
+Frontend checks:
+
+```bash
 cd pymol-ai-electron-ui
 npm run test:parser
 ./node_modules/.bin/tsc --noEmit
@@ -201,6 +217,15 @@ npm run build
 npm run build:electron
 ```
 
-## License
+## Important Paths
 
-MIT
+- Backend: `pymol-bridge/main.py`
+- Backend command model: `pymol-bridge/command_model.py`
+- Frontend app shell: `pymol-ai-electron-ui/src/ui/App.tsx`
+- Viewer: `pymol-ai-electron-ui/src/ui/components/MoleculeViewer.tsx`
+
+## Notes
+
+- This repository still contains legacy PyMOL-era code under `plugin/` while the standalone transition is in progress.
+- Legacy bootstrap and PyMOL plugin scripts remain in the repository, but GitHub Releases are the primary install path for standalone desktop users.
+- Feature removal is not the default policy on this branch. Deferred capabilities stay staged until there is evidence they should be cut.
