@@ -8,8 +8,8 @@ End users should download packaged builds from [GitHub Releases](https://github.
 
 Packaged alpha builds bundle the NexMol backend. End users should not need to install Python, Node.js, or npm separately.
 
-Current macOS release asset: `NexMol-<version>-arm64.dmg`
-Current Windows release asset: `NexMol-<version>-win-x64.exe`
+Current macOS release asset: `NexMol-0.2.1-alpha-arm64.dmg`
+Current Windows release asset: `NexMol-0.2.1-alpha-win-x64.exe`
 
 ## Install on macOS
 
