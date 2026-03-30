@@ -8,28 +8,31 @@ End users should download packaged builds from [GitHub Releases](https://github.
 
 Packaged alpha builds bundle the NexMol backend. End users should not need to install Python, Node.js, or npm separately.
 
-Current macOS release asset: `NexMol-<version>-arm64.dmg`
+Current macOS release asset: `NexMol-0.2.1-alpha-arm64.dmg`
+Current Windows release asset: `NexMol-0.2.1-alpha-win-x64.exe`
 
 ## Install on macOS
 
 1. Download the latest macOS `.dmg` release asset from [GitHub Releases](https://github.com/varunsharm16/pymol_ai_assistant/releases).
-2. Open the downloaded DMG.
-3. Drag `NexMol.app` into `Applications`.
-4. Launch the app from `Applications`.
-5. Because alpha builds are currently unsigned, macOS may block the first launch. If that happens, right-click `NexMol.app` and choose `Open`.
-6. Open Settings and enter your OpenAI API key.
+2. Open the DMG and drag `NexMol.app` into `Applications`.
+3. If macOS blocks the first launch, open Terminal and run:
+
+```bash
+xattr -dr com.apple.quarantine /Applications/NexMol.app
+```
+
+4. Launch `NexMol` from `Applications`.
+5. Open Settings and enter your OpenAI API key.
+
+Note: the current macOS alpha build is signed, but Apple notarization is still pending. Until that is complete, macOS may show a protection warning on first launch.
 
 ## Windows
 
-Windows users should download the latest unsigned `x64` installer `.exe` from [GitHub Releases](https://github.com/varunsharm16/pymol_ai_assistant/releases).
-
-If Windows shows `Windows protected your PC` on first launch, click `More info` and then `Run anyway`. This is expected for the current unsigned alpha installer.
-
-Maintainer notes:
-
-1. The `Windows Package` workflow can still be run manually for validation builds.
-2. Tagged builds publish the Windows installer and matching metadata to GitHub Releases.
-3. Workflow artifacts remain useful for debugging, but they are not the intended end-user install path.
+1. Download the latest Windows `x64` installer `.exe` from [GitHub Releases](https://github.com/varunsharm16/pymol_ai_assistant/releases).
+2. Run the installer.
+3. If Windows shows `Windows protected your PC`, click `More info`, then `Run anyway`.
+4. Launch `NexMol`.
+5. Open Settings and enter your OpenAI API key.
 
 ## Current Status
 
@@ -104,14 +107,6 @@ Frontend:
 ```bash
 cd pymol-ai-electron-ui
 npm install
-```
-
-Maintainer packaging:
-
-```powershell
-cd pymol-ai-electron-ui
-npm run package:win:dir
-npm run package:win
 ```
 
 ### Running NexMol
