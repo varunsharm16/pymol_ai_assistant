@@ -21,7 +21,15 @@ Current macOS release asset: `NexMol-<version>-arm64.dmg`
 
 ## Windows
 
-Windows packaging is still in progress. Until a Windows release asset is published, Windows users should build from source.
+Windows packaging is now available as a maintainer-run GitHub Actions workflow that builds an unsigned `x64` NSIS installer and uploads it as a workflow artifact.
+
+Current Windows packaging path:
+
+1. Open the `Windows Package` workflow in GitHub Actions.
+2. Run it manually with `workflow_dispatch`.
+3. Download the generated artifact from that workflow run.
+
+Public GitHub Release publishing is not wired yet, so Windows installers are not published in Releases at this stage.
 
 ## Current Status
 
@@ -96,6 +104,14 @@ Frontend:
 ```bash
 cd pymol-ai-electron-ui
 npm install
+```
+
+Maintainer packaging:
+
+```powershell
+cd pymol-ai-electron-ui
+npm run package:win:dir
+npm run package:win
 ```
 
 ### Running NexMol

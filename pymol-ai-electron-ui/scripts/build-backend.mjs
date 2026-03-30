@@ -8,13 +8,43 @@ const uiRoot = resolve(__dirname, '..');
 const repoRoot = resolve(uiRoot, '..');
 const bridgeRoot = resolve(repoRoot, 'pymol-bridge');
 const buildRoot = resolve(uiRoot, 'build');
-const configRoot = join(buildRoot, 'backend-config');
-const distRoot = join(buildRoot, 'backend-dist');
-const workRoot = join(buildRoot, 'backend-work');
-const specRoot = join(buildRoot, 'backend-spec');
 const entrypoint = join(bridgeRoot, 'main.py');
+const hostPlatform = process.platform;
+const hostArch = process.arch;
+const targetPlatform = process.env.NEXMOL_TARGET_PLATFORM || hostPlatform;
+const targetArch = process.env.NEXMOL_TARGET_ARCH || hostArch;
+const targetKey = `${targetPlatform}-${targetArch}`;
+const configRoot = join(buildRoot, 'backend-config', targetKey);
+const distRoot = join(buildRoot, 'backend-dist', targetKey);
+const workRoot = join(buildRoot, 'backend-work', targetKey);
+const specRoot = join(buildRoot, 'backend-spec', targetKey);
 
-const pythonCmd = process.platform === 'win32'
+function fail(message) {
+  console.error(`[NexMol] ${message}`);
+  process.exit(1);
+}
+
+if (targetPlatform !== hostPlatform) {
+  if (targetPlatform === 'win32') {
+    fail(
+      [
+        `Windows backend packaging must run on Windows.`,
+        `Requested target: ${targetPlatform}/${targetArch}`,
+        `Current host: ${hostPlatform}/${hostArch}`,
+      ].join('\n')
+    );
+  }
+
+  fail(
+    [
+      `Cross-platform backend packaging is not supported by this script.`,
+      `Requested target: ${targetPlatform}/${targetArch}`,
+      `Current host: ${hostPlatform}/${hostArch}`,
+    ].join('\n')
+  );
+}
+
+const pythonCmd = hostPlatform === 'win32'
   ? join(bridgeRoot, '.venv', 'Scripts', 'python.exe')
   : join(bridgeRoot, '.venv', 'bin', 'python');
 
@@ -25,7 +55,7 @@ if (!existsSync(pythonCmd)) {
       `Expected Python at: ${pythonCmd}`,
       'Create it with:',
       '  cd pymol-bridge',
-      process.platform === 'win32'
+      hostPlatform === 'win32'
         ? '  py -m venv .venv && .venv\\Scripts\\python -m pip install -r requirements.txt && .venv\\Scripts\\python -m pip install -r requirements-build.txt'
         : '  python3 -m venv .venv && .venv/bin/python -m pip install -r requirements.txt && .venv/bin/python -m pip install -r requirements-build.txt',
     ].join('\n')
@@ -43,12 +73,35 @@ if (versionCheck.status !== 0) {
     [
       '[NexMol] PyInstaller is not installed in pymol-bridge/.venv.',
       'Install it with:',
-      process.platform === 'win32'
+      hostPlatform === 'win32'
         ? '  pymol-bridge\\.venv\\Scripts\\python -m pip install -r pymol-bridge\\requirements-build.txt'
         : '  pymol-bridge/.venv/bin/python -m pip install -r pymol-bridge/requirements-build.txt',
     ].join('\n')
   );
   process.exit(versionCheck.status ?? 1);
+}
+
+const supportedArchs = new Set(['x64', 'arm64']);
+if (!supportedArchs.has(targetArch)) {
+  fail(
+    [
+      `Unsupported target arch: ${targetArch}`,
+      `Supported values: x64, arm64`,
+    ].join('\n')
+  );
+}
+
+let pyInstallerTargetArch = null;
+if (targetPlatform === 'darwin') {
+  pyInstallerTargetArch = targetArch === 'x64' ? 'x86_64' : 'arm64';
+} else if (targetPlatform === 'win32' && targetArch !== hostArch) {
+  fail(
+    [
+      `Windows backend packaging must match the host architecture.`,
+      `Requested target arch: ${targetArch}`,
+      `Current host arch: ${hostArch}`,
+    ].join('\n')
+  );
 }
 
 rmSync(distRoot, { recursive: true, force: true });
@@ -62,7 +115,6 @@ const args = [
   '--clean',
   '--onedir',
   '--name', 'nexmol-backend',
-  '--target-arch', 'arm64',
   '--distpath', distRoot,
   '--workpath', workRoot,
   '--specpath', specRoot,
@@ -82,6 +134,10 @@ const args = [
   '--collect-all', 'certifi',
   entrypoint,
 ];
+
+if (pyInstallerTargetArch) {
+  args.splice(7, 0, '--target-arch', pyInstallerTargetArch);
+}
 
 const result = spawnSync(pythonCmd, args, {
   cwd: bridgeRoot,

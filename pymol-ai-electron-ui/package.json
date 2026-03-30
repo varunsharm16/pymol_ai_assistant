@@ -11,7 +11,10 @@
     "build": "vite build",
     "build:electron": "esbuild electron/main.ts --bundle --platform=node --external:electron --outfile=electron/main.cjs && esbuild electron/preload.ts --bundle --platform=node --external:electron --outfile=electron/preload.cjs",
     "build:backend": "node scripts/build-backend.mjs",
-    "package:mac": "npm run build && npm run build:electron && npm run build:backend && cross-env CSC_IDENTITY_AUTO_DISCOVERY=false electron-builder --mac dmg dir",
+    "build:backend:win:x64": "cross-env NEXMOL_TARGET_PLATFORM=win32 NEXMOL_TARGET_ARCH=x64 node scripts/build-backend.mjs",
+    "package:mac": "npm run build && npm run build:electron && npm run build:backend && electron-builder --mac dmg dir",
+    "package:win:dir": "npm run build && npm run build:electron && npm run build:backend:win:x64 && electron-builder --win dir --x64",
+    "package:win": "npm run build && npm run build:electron && npm run build:backend:win:x64 && electron-builder --win nsis --x64",
     "preview": "vite preview",
     "test:parser": "rimraf .tmp-tests && tsc -p tsconfig.test.json && node --test .tmp-tests/ui/lib/*.test.js"
   },
@@ -19,7 +22,8 @@
     "appId": "com.nexmol.app",
     "productName": "NexMol",
     "directories": {
-      "output": "release"
+      "output": "release",
+      "buildResources": "build-resources"
     },
     "icon": "src/assets/nexmol-app-icon-square.png",
     "files": [
@@ -27,27 +31,55 @@
       "electron/**/*.cjs",
       "package.json"
     ],
-    "extraResources": [
-      {
-        "from": "build/backend-dist/nexmol-backend",
-        "to": "backend",
-        "filter": [
-          "**/*",
-          "!*.pyc"
-        ]
-      }
-    ],
     "mac": {
       "artifactName": "${productName}-${version}-${arch}.${ext}",
       "category": "public.app-category.education",
+      "identity": "VARUN VINOD SHARMA (F55D2MWZ4L)",
+      "hardenedRuntime": true,
+      "gatekeeperAssess": false,
+      "notarize": {
+        "teamId": "F55D2MWZ4L"
+      },
       "icon": "src/assets/nexmol-app-icon-square.png",
+      "extraResources": [
+        {
+          "from": "build/backend-dist/darwin-${arch}/nexmol-backend",
+          "to": "backend",
+          "filter": [
+            "**/*",
+            "!*.pyc"
+          ]
+        }
+      ],
       "target": [
         "dmg",
         "dir"
       ]
     },
+    "win": {
+      "artifactName": "NexMol-${version}-win-${arch}.${ext}",
+      "icon": "build-resources/icon.ico",
+      "extraResources": [
+        {
+          "from": "build/backend-dist/win32-${arch}/nexmol-backend",
+          "to": "backend",
+          "filter": [
+            "**/*",
+            "!*.pyc"
+          ]
+        }
+      ],
+      "target": [
+        "nsis"
+      ]
+    },
     "dmg": {
       "sign": false
+    },
+    "nsis": {
+      "oneClick": false,
+      "perMachine": false,
+      "allowToChangeInstallationDirectory": true
     }
   },
   "dependencies": {

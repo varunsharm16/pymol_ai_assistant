@@ -2,6 +2,28 @@
 
 All notable changes to NexMol are documented here.
 
+## [0.2.1-alpha] - 2026-03-29
+
+### Added
+
+- bundled the Python backend into the macOS app package so NexMol can run as a standalone desktop build
+- added macOS packaging assets and release-ready app icon variants for GitHub distribution
+- added a Windows packaging workflow that builds unsigned x64 NSIS installers as downloadable GitHub Actions artifacts
+- added a branded empty-state viewer treatment and vendored the Manrope font locally
+
+### Changed
+
+- moved the chat workflow into the right-side panel layout
+- refined the app branding across the packaged icon, viewer empty state, and settings surface
+- simplified the in-app System Check to focus on the two user-relevant checks: backend reachability and API key validity
+- updated the README and packaging workflow around GitHub Releases and macOS DMG distribution
+- made backend packaging target-aware so macOS and Windows bundles use separate build output paths
+
+### Fixed
+
+- hardened the Electron main-process window lifecycle to avoid stale `BrowserWindow` crashes on relaunch
+- cleaned up generated packaging artifacts and removed obsolete logo and build helper files from the app workflow
+
 ## [0.2.0-alpha] - 2026-03-27
 
 ### Added
