@@ -12,7 +12,11 @@
     "build:electron": "esbuild electron/main.ts --bundle --platform=node --external:electron --outfile=electron/main.cjs && esbuild electron/preload.ts --bundle --platform=node --external:electron --outfile=electron/preload.cjs",
     "build:backend": "node scripts/build-backend.mjs",
     "build:backend:win:x64": "cross-env NEXMOL_TARGET_PLATFORM=win32 NEXMOL_TARGET_ARCH=x64 node scripts/build-backend.mjs",
-    "package:mac": "npm run build && npm run build:electron && npm run build:backend && electron-builder --mac dmg dir",
+    "package:mac:app": "npm run build && npm run build:electron && npm run build:backend && electron-builder --mac dir --arm64",
+    "notarize:mac": "node scripts/notarize-mac.mjs submit",
+    "notarize:mac:resume": "node scripts/notarize-mac.mjs resume",
+    "package:mac:dmg": "electron-builder --mac dmg --arm64 --prepackaged release/mac-arm64/NexMol.app",
+    "package:mac": "npm run package:mac:app && npm run notarize:mac && npm run package:mac:dmg",
     "package:win:dir": "npm run build && npm run build:electron && npm run build:backend:win:x64 && electron-builder --win dir --x64",
     "package:win": "npm run build && npm run build:electron && npm run build:backend:win:x64 && electron-builder --win nsis --x64",
     "preview": "vite preview",
@@ -37,9 +41,6 @@
       "identity": "VARUN VINOD SHARMA (F55D2MWZ4L)",
       "hardenedRuntime": true,
       "gatekeeperAssess": false,
-      "notarize": {
-        "teamId": "F55D2MWZ4L"
-      },
       "icon": "src/assets/nexmol-app-icon-square.png",
       "extraResources": [
         {
