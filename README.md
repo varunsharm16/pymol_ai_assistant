@@ -23,6 +23,8 @@ Current macOS release asset: `NexMol-<version>-arm64.dmg`
 
 Windows users should download the latest unsigned `x64` installer `.exe` from [GitHub Releases](https://github.com/varunsharm16/pymol_ai_assistant/releases).
 
+If Windows shows `Windows protected your PC` on first launch, click `More info` and then `Run anyway`. This is expected for the current unsigned alpha installer.
+
 Maintainer notes:
 
 1. The `Windows Package` workflow can still be run manually for validation builds.
