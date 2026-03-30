@@ -34,6 +34,16 @@ Note: the current macOS alpha build is signed, but Apple notarization is still p
 4. Launch `NexMol`.
 5. Open Settings and enter your OpenAI API key.
 
+## Screenshots
+
+Natural-language molecular visualization in the desktop app:
+
+![NexMol hero screenshot](docs/assets/nexmol-hero.png)
+
+Sequence-aware molecular viewing in the desktop app:
+
+![NexMol sequence-aware molecular viewer](docs/assets/nexmol-sequence-viewer.png)
+
 ## Current Status
 
 This branch is a staged weekend stabilization build.
