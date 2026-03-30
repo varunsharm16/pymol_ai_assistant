@@ -9,19 +9,30 @@ End users should download packaged builds from [GitHub Releases](https://github.
 Packaged alpha builds bundle the NexMol backend. End users should not need to install Python, Node.js, or npm separately.
 
 Current macOS release asset: `NexMol-<version>-arm64.dmg`
+Current Windows release asset: `NexMol-<version>-win-x64.exe`
 
 ## Install on macOS
 
 1. Download the latest macOS `.dmg` release asset from [GitHub Releases](https://github.com/varunsharm16/pymol_ai_assistant/releases).
-2. Open the downloaded DMG.
-3. Drag `NexMol.app` into `Applications`.
-4. Launch the app from `Applications`.
-5. Because alpha builds are currently unsigned, macOS may block the first launch. If that happens, right-click `NexMol.app` and choose `Open`.
-6. Open Settings and enter your OpenAI API key.
+2. Open the DMG and drag `NexMol.app` into `Applications`.
+3. If macOS blocks the first launch, open Terminal and run:
+
+```bash
+xattr -dr com.apple.quarantine /Applications/NexMol.app
+```
+
+4. Launch `NexMol` from `Applications`.
+5. Open Settings and enter your OpenAI API key.
+
+Note: the current macOS alpha build is signed, but Apple notarization is still pending. Until that is complete, macOS may show a protection warning on first launch.
 
 ## Windows
 
-Windows packaging is still in progress. Until a Windows release asset is published, Windows users should build from source.
+1. Download the latest Windows `x64` installer `.exe` from [GitHub Releases](https://github.com/varunsharm16/pymol_ai_assistant/releases).
+2. Run the installer.
+3. If Windows shows `Windows protected your PC`, click `More info`, then `Run anyway`.
+4. Launch `NexMol`.
+5. Open Settings and enter your OpenAI API key.
 
 ## Current Status
 
