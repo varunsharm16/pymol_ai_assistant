@@ -18,6 +18,7 @@ All notable changes to NexMol are documented here.
 - simplified the in-app System Check to focus on the two user-relevant checks: backend reachability and API key validity
 - updated the README and packaging workflow around GitHub Releases and macOS DMG distribution
 - made backend packaging target-aware so macOS and Windows bundles use separate build output paths
+- configured tagged Windows packaging runs to publish the installer `.exe` and matching metadata directly to GitHub Releases
 
 ### Fixed
 

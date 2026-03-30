@@ -21,15 +21,13 @@ Current macOS release asset: `NexMol-<version>-arm64.dmg`
 
 ## Windows
 
-Windows packaging is now available as a maintainer-run GitHub Actions workflow that builds an unsigned `x64` NSIS installer and uploads it as a workflow artifact.
+Windows users should download the latest unsigned `x64` installer `.exe` from [GitHub Releases](https://github.com/varunsharm16/pymol_ai_assistant/releases).
 
-Current Windows packaging path:
+Maintainer notes:
 
-1. Open the `Windows Package` workflow in GitHub Actions.
-2. Run it manually with `workflow_dispatch`.
-3. Download the generated artifact from that workflow run.
-
-Public GitHub Release publishing is not wired yet, so Windows installers are not published in Releases at this stage.
+1. The `Windows Package` workflow can still be run manually for validation builds.
+2. Tagged builds publish the Windows installer and matching metadata to GitHub Releases.
+3. Workflow artifacts remain useful for debugging, but they are not the intended end-user install path.
 
 ## Current Status
 
